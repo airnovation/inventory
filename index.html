@@ -52,7 +52,7 @@
 
   <div id="notice" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
     <div class="card w-full max-w-sm p-6 text-center">
-      <p id="notice-text" class="text-lg font-semibold text-slate-800"></p>
+      <p id="notice-text" class="break-words text-left text-lg font-semibold text-slate-800"></p>
       <button class="btn btn-primary mt-5 w-full" onclick="closeNotice()">OK</button>
     </div>
   </div>
@@ -93,7 +93,7 @@
 
     onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        await signInAnonymously(auth).catch(err => showNotice("Cannot connect to service: " + err.message));
+        await signInAnonymously(auth).catch(err => showNotice("Cannot connect to service: " + formatFirebaseError(err)));
         return;
       }
       userId = user.uid;
@@ -101,14 +101,22 @@
       authState.textContent = isAdmin ? `Admin: ${user.email}` : "Staff mode";
       if (!unsubscribed) {
         unsubscribed = true;
-        onSnapshot(query(collection(db, `${DATA_ROOT}/inventory_logs`)), snap => {
-          inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          render();
-        });
-        onSnapshot(query(collection(db, `${DATA_ROOT}/material_requests`)), snap => {
-          materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          render();
-        });
+        onSnapshot(
+          query(collection(db, `${DATA_ROOT}/inventory_logs`)),
+          snap => {
+            inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            render();
+          },
+          err => showNotice("Cannot load inventory logs: " + formatFirebaseError(err))
+        );
+        onSnapshot(
+          query(collection(db, `${DATA_ROOT}/material_requests`)),
+          snap => {
+            materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            render();
+          },
+          err => showNotice("Cannot load material requests: " + formatFirebaseError(err))
+        );
       }
       render();
     });
@@ -294,7 +302,7 @@
         showNotice("Record submitted successfully.");
       } catch (err) {
         console.error(err);
-        showNotice("Submission failed.");
+        showNotice("Submission failed: " + formatFirebaseError(err));
       } finally {
         setLoading(button, false);
       }
@@ -323,7 +331,7 @@
         showNotice("Request submitted successfully.");
       } catch (err) {
         console.error(err);
-        showNotice("Submission failed.");
+        showNotice("Submission failed: " + formatFirebaseError(err));
       } finally {
         setLoading(button, false);
       }
@@ -336,6 +344,7 @@
         setTab("admin");
       } catch (err) {
         console.error(err);
+        document.getElementById("login-error").textContent = "Login failed: " + formatFirebaseError(err);
         document.getElementById("login-error").classList.remove("hidden");
       }
     }
@@ -352,12 +361,12 @@
       if (!isAdmin) return;
       const { id, type } = e.currentTarget.dataset;
       const collectionName = type === "log" ? "inventory_logs" : "material_requests";
-      await deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, id)).catch(err => showNotice("Deletion failed: " + err.message));
+      await deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, id)).catch(err => showNotice("Deletion failed: " + formatFirebaseError(err)));
     }
 
     async function updateRequest(id, data) {
       if (!isAdmin) return;
-      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), data).catch(err => showNotice("Update failed: " + err.message));
+      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), data).catch(err => showNotice("Update failed: " + formatFirebaseError(err)));
     }
 
     function bindPhoto(inputId, previewId) {
@@ -405,6 +414,13 @@
     function formatTime(ts) {
       if (!ts?.toDate) return "Just now";
       return ts.toDate().toLocaleString();
+    }
+
+    function formatFirebaseError(err) {
+      const parts = [];
+      if (err?.code) parts.push(err.code);
+      if (err?.message) parts.push(err.message);
+      return parts.join(": ") || "Unknown error";
     }
 
     function showNotice(message) {
