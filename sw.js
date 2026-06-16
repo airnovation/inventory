@@ -1,10 +1,10 @@
-const CACHE_NAME = "airnovation-inventory-v2";
+const CACHE_NAME = "airnovation-inventory-v3";
 const APP_ASSETS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-192-v3.png",
+  "./icons/icon-512-v3.png"
 ];
 
 self.addEventListener("install", event => {
