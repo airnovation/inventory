@@ -627,6 +627,15 @@
       if (!isAdmin) return;
       const { id, type } = e.currentTarget.dataset;
       const collectionName = type === "log" ? "inventory_logs" : "material_requests";
+      const record = type === "log"
+        ? inventoryLogs.find(item => item.id === id)
+        : materialRequests.find(item => item.id === id);
+      const recordName = type === "log"
+        ? (record?.itemName || "this stock record")
+        : (record?.materialName || getRequestItems(record || {})[0]?.materialName || "this material request");
+      const label = type === "log" ? "stock record" : "material request";
+      const ok = window.confirm(`Delete ${label}: ${recordName}?\n\nThis action cannot be undone.`);
+      if (!ok) return;
       await deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, id)).catch(err => showNotice("Deletion failed: " + formatFirebaseError(err)));
     }
 
