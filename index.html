@@ -234,7 +234,7 @@
         <div id="admin-list" class="space-y-3"></div>`;
       document.getElementById("logout").addEventListener("click", adminLogout);
       const list = document.getElementById("admin-list");
-      const sorted = [...materialRequests].sort((a, b) => ({new: 1, processing: 2, completed: 3}[a.status] || 4) - ({new: 1, processing: 2, completed: 3}[b.status] || 4));
+      const sorted = [...materialRequests].sort((a, b) => getStatusRank(a.status) - getStatusRank(b.status));
       if (!sorted.length) {
         list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No pending requests</div>`;
         return;
@@ -269,16 +269,11 @@
           <td class="py-2 pr-3">${escapeHtml(String(item.quantity || 0))}</td>
           <td class="py-2 pr-3">${escapeHtml(item.remark || "-")}</td>
         </tr>`).join("");
-      const map = {
-        new: "bg-red-100 text-red-700",
-        processing: "bg-amber-100 text-amber-700",
-        completed: "bg-emerald-100 text-emerald-700"
-      };
       el.className = "card border-l-4 border-l-blue-500 p-4";
       el.innerHTML = `
         <div class="flex justify-between gap-4">
           <div><h3 class="font-bold text-slate-800"></h3><p class="text-sm text-slate-500"></p><p class="text-sm text-slate-500"></p></div>
-          <div class="text-right"><span class="badge ${map[req.status] || "bg-slate-100 text-slate-700"}">${req.status || "new"}</span><p class="mt-1 text-xs text-slate-400">${formatTime(req.timestamp)}</p></div>
+          <div class="text-right"><span class="badge ${getStatusClass(req.status)}">${getStatusLabel(req.status)}</span><p class="mt-1 text-xs text-slate-400">${formatTime(req.timestamp)}</p></div>
         </div>
         <div class="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-600">
           <p></p><p></p>
@@ -303,20 +298,29 @@
     }
 
     function adminButtons(req) {
-      if (req.status === "new") {
-        return `<div class="mt-3 flex justify-between border-t border-slate-100 pt-3"><button class="process btn btn-primary px-3 py-2" data-id="${req.id}">Process</button><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
-      }
-      if (req.status === "processing") {
-        return `<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><input class="eta field w-auto" type="date" data-id="${req.id}" value="${req.arrivalDate || ""}"><button class="complete btn btn-green px-3 py-2" data-id="${req.id}">Complete</button><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
-      }
-      return `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
+      const statusButtons = [
+        ["processing", "Process", "btn-primary"],
+        ["still_pending", "Still Pending", "bg-amber-500 text-white"],
+        ["rejected", "Rejected", "btn-red"],
+        ["completed", "Complete", "btn-green"]
+      ].map(([status, label, className]) => {
+        const active = normalizeStatus(req.status) === status ? " ring-2 ring-offset-2 ring-slate-400" : "";
+        return `<button class="request-status btn ${className} px-3 py-2${active}" data-id="${req.id}" data-status="${status}">${label}</button>`;
+      }).join("");
+
+      return `<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+        <input class="eta field w-auto" type="date" data-id="${req.id}" value="${req.arrivalDate || ""}" title="ETA">
+        ${statusButtons}
+        <button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button>
+      </div>`;
     }
 
     function bindCardActions(el) {
       el.querySelectorAll(".thumb").forEach(img => img.addEventListener("click", () => openLightbox(img.src)));
       el.querySelector(".delete")?.addEventListener("click", deleteItem);
-      el.querySelector(".process")?.addEventListener("click", e => updateRequest(e.currentTarget.dataset.id, { status: "processing" }));
-      el.querySelector(".complete")?.addEventListener("click", e => updateRequest(e.currentTarget.dataset.id, { status: "completed" }));
+      el.querySelectorAll(".request-status").forEach(btn => {
+        btn.addEventListener("click", e => updateRequest(e.currentTarget.dataset.id, { status: e.currentTarget.dataset.status }));
+      });
       el.querySelector(".eta")?.addEventListener("change", e => updateRequest(e.currentTarget.dataset.id, { arrivalDate: e.currentTarget.value }));
     }
 
@@ -360,6 +364,42 @@
         quantity: req.quantity || 0,
         remark: req.remark || ""
       }];
+    }
+
+    function normalizeStatus(status) {
+      if (status === "process") return "processing";
+      if (status === "pending") return "still_pending";
+      return status || "new";
+    }
+
+    function getStatusLabel(status) {
+      return ({
+        new: "New",
+        processing: "Process",
+        still_pending: "Still Pending",
+        rejected: "Rejected",
+        completed: "Completed"
+      })[normalizeStatus(status)] || "New";
+    }
+
+    function getStatusClass(status) {
+      return ({
+        new: "bg-red-100 text-red-700",
+        processing: "bg-blue-100 text-blue-700",
+        still_pending: "bg-amber-100 text-amber-700",
+        rejected: "bg-slate-200 text-slate-700",
+        completed: "bg-emerald-100 text-emerald-700"
+      })[normalizeStatus(status)] || "bg-red-100 text-red-700";
+    }
+
+    function getStatusRank(status) {
+      return ({
+        new: 1,
+        still_pending: 2,
+        processing: 3,
+        rejected: 4,
+        completed: 5
+      })[normalizeStatus(status)] || 6;
     }
 
     async function submitStock(e) {
