@@ -141,21 +141,44 @@
       view.innerHTML = `
         <form id="stock-form" class="mx-auto max-w-2xl space-y-5">
           <h2 class="text-xl font-bold text-slate-800">Stock In/Out</h2>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="card cursor-pointer p-4"><input type="radio" name="type" value="outbound" checked class="mr-2"> Stock Out</label>
-            <label class="card cursor-pointer p-4"><input type="radio" name="type" value="inbound" class="mr-2"> Stock In</label>
-          </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            <label class="block text-sm font-semibold text-slate-600">Item Name <input id="item-name" required class="field mt-1"></label>
-            <label class="block text-sm font-semibold text-slate-600">Quantity <input id="quantity" required type="number" min="1" class="field mt-1"></label>
-            <label class="block text-sm font-semibold text-slate-600">Dept./PIC <input id="department-head" required class="field mt-1"></label>
-            <label class="block text-sm font-semibold text-slate-600">Location <input id="location" required class="field mt-1"></label>
-          </div>
-          <label class="block text-sm font-semibold text-slate-600">Photo (Optional)<input id="stock-photo" type="file" accept="image/*" class="field mt-1"></label>
-          <img id="stock-preview" class="thumb hidden" alt="Stock preview">
+          <section class="space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+              <label class="card cursor-pointer p-4"><input type="radio" name="type" value="outbound" checked class="mr-2"> Stock Out</label>
+              <label class="card cursor-pointer p-4"><input type="radio" name="type" value="inbound" class="mr-2"> Stock In</label>
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <label class="block text-sm font-semibold text-slate-600">Dept./PIC <input id="department-head" required class="field mt-1"></label>
+              <label class="block text-sm font-semibold text-slate-600">Location <input id="location" required class="field mt-1"></label>
+            </div>
+            <label class="block text-sm font-semibold text-slate-600">Photo / Attachment<input id="stock-photo" type="file" accept="image/*" class="field mt-1"></label>
+            <img id="stock-preview" class="thumb hidden" alt="Stock preview">
+          </section>
+
+          <section class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-base font-bold text-slate-700">Items</h3>
+              <button id="add-stock-item" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">+ Add Item</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[760px] text-left text-sm">
+                <thead class="text-slate-500">
+                  <tr>
+                    <th class="pb-2 pr-3">Item Name</th>
+                    <th class="pb-2 pr-3">Quantity</th>
+                    <th class="pb-2 pr-3">Unit</th>
+                    <th class="pb-2 pr-3">Remark</th>
+                    <th class="pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="stock-items" class="align-top"></tbody>
+              </table>
+            </div>
+          </section>
           <button class="btn btn-primary w-full" type="submit"><span>Submit</span><span class="loader ml-3 hidden"></span></button>
         </form>`;
       bindPhoto("stock-photo", "stock-preview");
+      addStockItemRow();
+      document.getElementById("add-stock-item").addEventListener("click", addStockItemRow);
       document.getElementById("stock-form").addEventListener("submit", submitStock);
     }
 
@@ -257,15 +280,31 @@
     function stockCard(log) {
       const el = document.createElement("article");
       const outbound = log.type === "outbound";
+      const stockItems = getStockItems(log);
+      const itemRows = stockItems.map(item => `
+        <tr class="border-t border-slate-100">
+          <td class="py-2 pr-3 font-semibold text-slate-700">${escapeHtml(item.itemName || "Untitled item")}</td>
+          <td class="py-2 pr-3">${escapeHtml(String(item.quantity || 0))}</td>
+          <td class="py-2 pr-3">${escapeHtml(item.unit || "-")}</td>
+          <td class="py-2 pr-3">${escapeHtml(item.remark || "-")}</td>
+        </tr>`).join("");
       el.className = `card border-l-4 p-4 ${outbound ? "border-l-orange-500" : "border-l-emerald-500"}`;
       el.innerHTML = `
         <div class="flex justify-between gap-4">
           <div><h3 class="font-bold text-slate-800"></h3><p class="text-sm text-slate-500"></p><p class="text-sm text-slate-500"></p></div>
-          <div class="text-right"><div class="font-bold ${outbound ? "text-orange-600" : "text-emerald-600"}">${outbound ? "Stock Out" : "Stock In"} x ${log.quantity || 0}</div><p class="text-xs text-slate-400">${formatTime(log.timestamp)}</p></div>
+          <div class="text-right"><div class="font-bold ${outbound ? "text-orange-600" : "text-emerald-600"}">${outbound ? "Stock Out" : "Stock In"} | Items: ${stockItems.length}</div><p class="text-xs text-slate-400">${formatTime(log.timestamp)}</p></div>
+        </div>
+        <div class="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-600">
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[520px] text-left text-sm">
+              <thead class="text-slate-400"><tr><th class="pb-2 pr-3">Item Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Unit</th><th class="pb-2 pr-3">Remark</th></tr></thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+          </div>
         </div>
         ${log.imageDataURL ? `<img src="${log.imageDataURL}" class="thumb mt-3" alt="Log image">` : ""}
         ${isAdmin ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
-      el.querySelector("h3").textContent = log.itemName || "Untitled item";
+      el.querySelector("h3").textContent = stockItems.length === 1 ? stockItems[0].itemName : `${stockItems.length} stock items`;
       el.querySelectorAll("p")[0].textContent = `By: ${log.departmentHead || "N/A"}`;
       el.querySelectorAll("p")[1].textContent = `Location: ${log.location || "N/A"}`;
       bindCardActions(el);
@@ -330,6 +369,51 @@
         select.addEventListener("change", e => updateRequestStatus(e.currentTarget.dataset.id, e.currentTarget.value));
       });
       el.querySelector(".eta")?.addEventListener("change", e => updateRequest(e.currentTarget.dataset.id, { arrivalDate: e.currentTarget.value }));
+    }
+
+    function addStockItemRow() {
+      const body = document.getElementById("stock-items");
+      if (!body) return;
+      const row = document.createElement("tr");
+      row.className = "stock-item-row";
+      row.innerHTML = `
+        <td class="pb-3 pr-3"><input class="stock-item-name field" required placeholder="Cable Tray"></td>
+        <td class="pb-3 pr-3"><input class="stock-quantity field" required type="number" min="1" placeholder="10"></td>
+        <td class="pb-3 pr-3"><input class="stock-unit field" placeholder="pcs"></td>
+        <td class="pb-3 pr-3"><input class="stock-remark field" placeholder="Project A"></td>
+        <td class="pb-3"><button class="remove-stock-item btn btn-red px-3 py-2" type="button">Remove</button></td>`;
+      row.querySelector(".remove-stock-item").addEventListener("click", () => {
+        row.remove();
+        refreshStockItemActions();
+      });
+      body.appendChild(row);
+      refreshStockItemActions();
+    }
+
+    function refreshStockItemActions() {
+      const rows = document.querySelectorAll(".stock-item-row");
+      rows.forEach(row => {
+        row.querySelector(".remove-stock-item").disabled = rows.length === 1;
+      });
+    }
+
+    function collectStockItems() {
+      return [...document.querySelectorAll(".stock-item-row")].map(row => ({
+        itemName: row.querySelector(".stock-item-name").value.trim(),
+        quantity: Number(row.querySelector(".stock-quantity").value) || 0,
+        unit: row.querySelector(".stock-unit").value.trim(),
+        remark: row.querySelector(".stock-remark").value.trim()
+      })).filter(item => item.itemName && item.quantity > 0);
+    }
+
+    function getStockItems(log) {
+      if (Array.isArray(log.items) && log.items.length) return log.items;
+      return [{
+        itemName: log.itemName || "Untitled item",
+        quantity: log.quantity || 0,
+        unit: log.unit || "",
+        remark: log.remark || ""
+      }];
     }
 
     function addRequestItemRow() {
@@ -443,15 +527,17 @@
             ...base,
             materialName: requestItem.materialName || "",
             quantity: requestItem.quantity || 0,
+            unit: "",
             remark: requestItem.remark || ""
           }));
         }
-        return [{
+        return getStockItems(item).map(stockItem => ({
           ...base,
-          materialName: item.itemName || "",
-          quantity: item.quantity || 0,
-          remark: ""
-        }];
+          materialName: stockItem.itemName || "",
+          quantity: stockItem.quantity || 0,
+          unit: stockItem.unit || "",
+          remark: stockItem.remark || ""
+        }));
       });
     }
 
@@ -462,7 +548,7 @@
         return;
       }
       const date = new Date().toISOString().slice(0, 10);
-      const headers = ["type", "status", "time", "pic", "usedFor", "materialName", "quantity", "remark", "location", "dateNeeded", "deliveryAddress", "handledBy"];
+      const headers = ["type", "status", "time", "pic", "usedFor", "materialName", "quantity", "unit", "remark", "location", "dateNeeded", "deliveryAddress", "handledBy"];
       const csv = [
         headers.join(","),
         ...rows.map(row => headers.map(header => csvCell(row[header])).join(","))
@@ -485,6 +571,7 @@
           <td>${escapeHtml(row.usedFor)}</td>
           <td>${escapeHtml(row.materialName)}</td>
           <td>${escapeHtml(row.quantity)}</td>
+          <td>${escapeHtml(row.unit)}</td>
           <td>${escapeHtml(row.remark)}</td>
           <td>${escapeHtml(row.dateNeeded)}</td>
         </tr>`).join("");
@@ -511,7 +598,7 @@
             <h1>Airnovation Activity Log</h1>
             <p>Printed: ${escapeHtml(new Date().toLocaleString())}</p>
             <table>
-              <thead><tr><th>Type</th><th>Status</th><th>Time</th><th>PIC</th><th>Used For</th><th>Material</th><th>Qty</th><th>Remark</th><th>Date Needed</th></tr></thead>
+              <thead><tr><th>Type</th><th>Status</th><th>Time</th><th>PIC</th><th>Used For</th><th>Material</th><th>Qty</th><th>Unit</th><th>Remark</th><th>Date Needed</th></tr></thead>
               <tbody>${bodyRows}</tbody>
             </table>
           </body>
@@ -544,10 +631,17 @@
       setLoading(button, true);
       try {
         const imageDataURL = await previewData("stock-preview");
+        const stockItems = collectStockItems();
+        if (!stockItems.length) {
+          showNotice("Please add at least one stock item.");
+          return;
+        }
         await addDoc(collection(db, `${DATA_ROOT}/inventory_logs`), {
           type: form.querySelector("[name=type]:checked").value,
-          itemName: document.getElementById("item-name").value,
-          quantity: Number(document.getElementById("quantity").value) || 0,
+          itemName: stockItems[0].itemName,
+          quantity: stockItems.reduce((sum, item) => sum + item.quantity, 0),
+          unit: stockItems[0].unit,
+          items: stockItems,
           departmentHead: document.getElementById("department-head").value,
           location: document.getElementById("location").value,
           imageDataURL,
@@ -556,6 +650,8 @@
         });
         form.reset();
         document.getElementById("stock-preview").classList.add("hidden");
+        document.getElementById("stock-items").innerHTML = "";
+        addStockItemRow();
         showNotice("Record submitted successfully.");
       } catch (err) {
         console.error(err);
