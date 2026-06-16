@@ -88,9 +88,13 @@
     let materialRequests = [];
     let currentLogItems = [];
     let unsubscribed = false;
+    let inventorySnapshotReady = false;
+    let requestSnapshotReady = false;
+    let notificationAudio = null;
 
     const view = document.getElementById("view");
     const authState = document.getElementById("auth-state");
+    document.addEventListener("click", unlockNotificationSound, { once: true });
 
     onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -105,6 +109,7 @@
         onSnapshot(
           query(collection(db, `${DATA_ROOT}/inventory_logs`)),
           snap => {
+            notifyNewRecords(snap, "New stock record received.", "stock");
             inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             render();
           },
@@ -113,6 +118,7 @@
         onSnapshot(
           query(collection(db, `${DATA_ROOT}/material_requests`)),
           snap => {
+            notifyNewRecords(snap, "New material request received.", "request");
             materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             render();
           },
@@ -624,6 +630,62 @@
       URL.revokeObjectURL(url);
     }
 
+    function notifyNewRecords(snap, message, kind) {
+      const snapshotReady = kind === "stock" ? inventorySnapshotReady : requestSnapshotReady;
+      if (!snapshotReady) {
+        if (kind === "stock") inventorySnapshotReady = true;
+        if (kind === "request") requestSnapshotReady = true;
+        return;
+      }
+      const hasNewRecord = snap.docChanges().some(change => change.type === "added");
+      if (isAdmin && hasNewRecord) {
+        playNotificationSound();
+        showToast(message);
+      }
+    }
+
+    function unlockNotificationSound() {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        notificationAudio ||= new AudioContext();
+        if (notificationAudio.state === "suspended") notificationAudio.resume();
+      } catch (err) {
+        console.warn("Notification sound could not be enabled.", err);
+      }
+    }
+
+    function playNotificationSound() {
+      try {
+        unlockNotificationSound();
+        if (!notificationAudio || notificationAudio.state !== "running") return;
+        const now = notificationAudio.currentTime;
+        [880, 1175].forEach((frequency, index) => {
+          const oscillator = notificationAudio.createOscillator();
+          const gain = notificationAudio.createGain();
+          const start = now + index * 0.12;
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(frequency, start);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+          oscillator.connect(gain).connect(notificationAudio.destination);
+          oscillator.start(start);
+          oscillator.stop(start + 0.2);
+        });
+      } catch (err) {
+        console.warn("Notification sound failed.", err);
+      }
+    }
+
+    function showToast(message) {
+      const toast = document.createElement("div");
+      toast.className = "fixed bottom-4 right-4 z-40 rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg";
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3200);
+    }
+
     async function submitStock(e) {
       e.preventDefault();
       const form = e.currentTarget;
@@ -702,6 +764,7 @@
     async function adminLogin(e) {
       e.preventDefault();
       try {
+        unlockNotificationSound();
         await signInWithEmailAndPassword(auth, document.getElementById("admin-email").value.trim(), document.getElementById("admin-password").value);
         setTab("admin");
       } catch (err) {
