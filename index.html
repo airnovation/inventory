@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Airnovation Inventory & Material Request</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: Inter, sans-serif; background: #f4f7fb; }
+    h1, h2, h3 { font-family: Poppins, sans-serif; }
+    .tab { flex: 1; min-height: 44px; border-radius: 8px; font-weight: 600; color: #475569; transition: .2s; }
+    .tab.active { background: #fff; color: #2563eb; box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; font-weight: 700; padding: .75rem 1rem; transition: .2s; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-green { background: #059669; color: #fff; }
+    .btn-green:hover:not(:disabled) { background: #047857; }
+    .btn-red { background: #dc2626; color: #fff; }
+    .field { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: .65rem .75rem; background: #fff; }
+    .field:focus { outline: 2px solid rgba(37, 99, 235, .25); border-color: #2563eb; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, .06); }
+    .thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .2rem .6rem; font-size: .75rem; font-weight: 700; }
+    .loader { width: 18px; height: 18px; border-radius: 999px; border: 3px solid rgba(255,255,255,.4); border-top-color: #fff; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="mx-auto max-w-4xl p-4 md:p-8">
+    <header class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl md:text-4xl font-bold text-slate-800">Inventory & Material Request</h1>
+        <p class="mt-1 font-medium text-slate-500">Airnovation Engineering Pte Ltd</p>
+      </div>
+      <div id="auth-state" class="text-sm font-semibold text-slate-500"></div>
+    </header>
+
+    <section class="rounded-xl bg-white p-2 shadow-lg shadow-slate-200/70">
+      <nav class="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Tabs">
+        <button class="tab active" data-tab="stock">Stock In/Out</button>
+        <button class="tab" data-tab="request">Material Request</button>
+        <button class="tab" data-tab="logs">Log</button>
+        <button class="tab" data-tab="admin">Admin</button>
+      </nav>
+      <div id="view" class="min-h-[430px] p-4 md:p-6"></div>
+    </section>
+  </main>
+
+  <div id="notice" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+    <div class="card w-full max-w-sm p-6 text-center">
+      <p id="notice-text" class="text-lg font-semibold text-slate-800"></p>
+      <button class="btn btn-primary mt-5 w-full" onclick="closeNotice()">OK</button>
+    </div>
+  </div>
+
+  <div id="lightbox" class="fixed inset-0 z-50 hidden cursor-pointer items-center justify-center bg-black/90 p-4" onclick="closeLightbox()">
+    <img id="lightbox-img" class="max-h-full max-w-full rounded-lg" alt="Full size image" />
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBZ0-KPzLs13U7uG0KIqiYbKdbOBqVT7cQ",
+      authDomain: "airnovation-inventory.firebaseapp.com",
+      projectId: "airnovation-inventory",
+      storageBucket: "airnovation-inventory.firebasestorage.app",
+      messagingSenderId: "273073947687",
+      appId: "1:273073947687:web:2bd59cddbf675526747a02",
+      measurementId: "G-MV1LH9X1DD"
+    };
+
+    const DATA_ROOT = "artifacts/inventory-tracker-app-dev/public/data";
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    let userId = null;
+    let isAdmin = false;
+    let currentTab = "stock";
+    let inventoryLogs = [];
+    let materialRequests = [];
+    let unsubscribed = false;
+
+    const view = document.getElementById("view");
+    const authState = document.getElementById("auth-state");
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        await signInAnonymously(auth).catch(err => showNotice("Cannot connect to service: " + err.message));
+        return;
+      }
+      userId = user.uid;
+      isAdmin = !user.isAnonymous;
+      authState.textContent = isAdmin ? `Admin: ${user.email}` : "Staff mode";
+      if (!unsubscribed) {
+        unsubscribed = true;
+        onSnapshot(query(collection(db, `${DATA_ROOT}/inventory_logs`)), snap => {
+          inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        });
+        onSnapshot(query(collection(db, `${DATA_ROOT}/material_requests`)), snap => {
+          materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        });
+      }
+      render();
+    });
+
+    function setTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll(".tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+      render();
+    }
+
+    document.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
+
+    function render() {
+      if (currentTab === "stock") renderStockForm();
+      if (currentTab === "request") renderRequestForm();
+      if (currentTab === "logs") renderLogs();
+      if (currentTab === "admin") renderAdmin();
+    }
+
+    function renderStockForm() {
+      view.innerHTML = `
+        <form id="stock-form" class="mx-auto max-w-2xl space-y-5">
+          <h2 class="text-xl font-bold text-slate-800">Stock In/Out</h2>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="card cursor-pointer p-4"><input type="radio" name="type" value="outbound" checked class="mr-2"> Outbound</label>
+            <label class="card cursor-pointer p-4"><input type="radio" name="type" value="inbound" class="mr-2"> Inbound</label>
+          </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block text-sm font-semibold text-slate-600">Item Name <input id="item-name" required class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Quantity <input id="quantity" required type="number" min="1" class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Dept./PIC <input id="department-head" required class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Location <input id="location" required class="field mt-1"></label>
+          </div>
+          <label class="block text-sm font-semibold text-slate-600">Photo (Optional)<input id="stock-photo" type="file" accept="image/*" class="field mt-1"></label>
+          <img id="stock-preview" class="thumb hidden" alt="Stock preview">
+          <button class="btn btn-primary w-full" type="submit"><span>Submit</span><span class="loader ml-3 hidden"></span></button>
+        </form>`;
+      bindPhoto("stock-photo", "stock-preview");
+      document.getElementById("stock-form").addEventListener("submit", submitStock);
+    }
+
+    function renderRequestForm() {
+      view.innerHTML = `
+        <form id="request-form" class="mx-auto max-w-2xl space-y-5">
+          <h2 class="text-xl font-bold text-slate-800">Material Request</h2>
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block text-sm font-semibold text-slate-600">PIC Name <input id="request-person" required class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Used For <input id="request-purpose" required class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Material Name <input id="request-material" required class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Quantity <input id="request-quantity" required type="number" min="1" class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Date Needed <input id="request-date" type="date" class="field mt-1"></label>
+            <label class="block text-sm font-semibold text-slate-600">Delivery Address <input id="request-address" required class="field mt-1"></label>
+          </div>
+          <label class="block text-sm font-semibold text-slate-600">Photo (Optional)<input id="request-photo" type="file" accept="image/*" class="field mt-1"></label>
+          <img id="request-preview" class="thumb hidden" alt="Request preview">
+          <button class="btn btn-green w-full" type="submit"><span>Submit Request</span><span class="loader ml-3 hidden"></span></button>
+        </form>`;
+      bindPhoto("request-photo", "request-preview");
+      document.getElementById("request-form").addEventListener("submit", submitRequest);
+    }
+
+    function renderLogs() {
+      const items = [...inventoryLogs.map(x => ({...x, kind: "stock"})), ...materialRequests.map(x => ({...x, kind: "request"}))]
+        .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      view.innerHTML = `<h2 class="mb-4 text-xl font-bold text-slate-800">Activity Log</h2><div id="log-list" class="space-y-3"></div>`;
+      const list = document.getElementById("log-list");
+      if (!items.length) {
+        list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No records found</div>`;
+        return;
+      }
+      items.forEach(item => list.appendChild(item.kind === "request" ? requestCard(item, false) : stockCard(item)));
+    }
+
+    function renderAdmin() {
+      if (!isAdmin) {
+        view.innerHTML = `
+          <form id="admin-login" class="mx-auto max-w-sm space-y-4">
+            <h2 class="text-xl font-bold text-slate-800">Admin Login</h2>
+            <input id="admin-email" type="email" required autocomplete="username" class="field" placeholder="Admin email">
+            <input id="admin-password" type="password" required autocomplete="current-password" class="field" placeholder="Password">
+            <p id="login-error" class="hidden text-sm font-semibold text-red-600">Login failed. Please check email and password.</p>
+            <button class="btn btn-primary w-full" type="submit">Login</button>
+          </form>`;
+        document.getElementById("admin-login").addEventListener("submit", adminLogin);
+        return;
+      }
+      view.innerHTML = `
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 class="text-xl font-bold text-slate-800">Material Request Management</h2>
+          <button id="logout" class="btn bg-slate-200 text-slate-700">Logout</button>
+        </div>
+        <div id="admin-list" class="space-y-3"></div>`;
+      document.getElementById("logout").addEventListener("click", adminLogout);
+      const list = document.getElementById("admin-list");
+      const sorted = [...materialRequests].sort((a, b) => ({new: 1, processing: 2, completed: 3}[a.status] || 4) - ({new: 1, processing: 2, completed: 3}[b.status] || 4));
+      if (!sorted.length) {
+        list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No pending requests</div>`;
+        return;
+      }
+      sorted.forEach(item => list.appendChild(requestCard(item, true)));
+    }
+
+    function stockCard(log) {
+      const el = document.createElement("article");
+      const outbound = log.type === "outbound";
+      el.className = `card border-l-4 p-4 ${outbound ? "border-l-orange-500" : "border-l-emerald-500"}`;
+      el.innerHTML = `
+        <div class="flex justify-between gap-4">
+          <div><h3 class="font-bold text-slate-800"></h3><p class="text-sm text-slate-500"></p><p class="text-sm text-slate-500"></p></div>
+          <div class="text-right"><div class="font-bold ${outbound ? "text-orange-600" : "text-emerald-600"}">${outbound ? "Outbound" : "Inbound"} x ${log.quantity || 0}</div><p class="text-xs text-slate-400">${formatTime(log.timestamp)}</p></div>
+        </div>
+        ${log.imageDataURL ? `<img src="${log.imageDataURL}" class="thumb mt-3" alt="Log image">` : ""}
+        ${isAdmin ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
+      el.querySelector("h3").textContent = log.itemName || "Untitled item";
+      el.querySelectorAll("p")[0].textContent = `By: ${log.departmentHead || "N/A"}`;
+      el.querySelectorAll("p")[1].textContent = `Location: ${log.location || "N/A"}`;
+      bindCardActions(el);
+      return el;
+    }
+
+    function requestCard(req, adminControls) {
+      const el = document.createElement("article");
+      const map = {
+        new: "bg-red-100 text-red-700",
+        processing: "bg-amber-100 text-amber-700",
+        completed: "bg-emerald-100 text-emerald-700"
+      };
+      el.className = "card border-l-4 border-l-blue-500 p-4";
+      el.innerHTML = `
+        <div class="flex justify-between gap-4">
+          <div><h3 class="font-bold text-slate-800"></h3><p class="text-sm text-slate-500"></p><p class="text-sm text-slate-500"></p></div>
+          <div class="text-right"><span class="badge ${map[req.status] || "bg-slate-100 text-slate-700"}">${req.status || "new"}</span><p class="mt-1 text-xs text-slate-400">${formatTime(req.timestamp)}</p></div>
+        </div>
+        <div class="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-600"><p></p><p></p>${req.arrivalDate ? `<p class="font-bold text-emerald-600">ETA: ${req.arrivalDate}</p>` : ""}</div>
+        ${req.imageDataURL ? `<img src="${req.imageDataURL}" class="thumb mt-3" alt="Request image">` : ""}
+        ${adminControls ? adminButtons(req) : ""}`;
+      el.querySelector("h3").textContent = req.materialName || "Untitled material";
+      el.querySelectorAll("p")[0].textContent = `By: ${req.personInCharge || "N/A"} | Qty: ${req.quantity || 0}`;
+      el.querySelectorAll("p")[1].textContent = `For: ${req.purpose || "N/A"}`;
+      const detail = el.querySelector(".mt-3.border-t");
+      detail.querySelectorAll("p")[0].textContent = `To: ${req.deliveryAddress || "N/A"}`;
+      detail.querySelectorAll("p")[1].textContent = `Date Needed: ${req.dateNeeded || "N/A"}`;
+      bindCardActions(el);
+      return el;
+    }
+
+    function adminButtons(req) {
+      if (req.status === "new") {
+        return `<div class="mt-3 flex justify-between border-t border-slate-100 pt-3"><button class="process btn btn-primary px-3 py-2" data-id="${req.id}">Process</button><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
+      }
+      if (req.status === "processing") {
+        return `<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><input class="eta field w-auto" type="date" data-id="${req.id}" value="${req.arrivalDate || ""}"><button class="complete btn btn-green px-3 py-2" data-id="${req.id}">Complete</button><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
+      }
+      return `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button></div>`;
+    }
+
+    function bindCardActions(el) {
+      el.querySelectorAll(".thumb").forEach(img => img.addEventListener("click", () => openLightbox(img.src)));
+      el.querySelector(".delete")?.addEventListener("click", deleteItem);
+      el.querySelector(".process")?.addEventListener("click", e => updateRequest(e.currentTarget.dataset.id, { status: "processing" }));
+      el.querySelector(".complete")?.addEventListener("click", e => updateRequest(e.currentTarget.dataset.id, { status: "completed" }));
+      el.querySelector(".eta")?.addEventListener("change", e => updateRequest(e.currentTarget.dataset.id, { arrivalDate: e.currentTarget.value }));
+    }
+
+    async function submitStock(e) {
+      e.preventDefault();
+      const button = e.currentTarget.querySelector("button[type=submit]");
+      setLoading(button, true);
+      try {
+        const imageDataURL = await previewData("stock-preview");
+        await addDoc(collection(db, `${DATA_ROOT}/inventory_logs`), {
+          type: e.currentTarget.querySelector("[name=type]:checked").value,
+          itemName: document.getElementById("item-name").value,
+          quantity: Number(document.getElementById("quantity").value) || 0,
+          departmentHead: document.getElementById("department-head").value,
+          location: document.getElementById("location").value,
+          imageDataURL,
+          timestamp: serverTimestamp(),
+          submitterId: userId
+        });
+        e.currentTarget.reset();
+        document.getElementById("stock-preview").classList.add("hidden");
+        showNotice("Record submitted successfully.");
+      } catch (err) {
+        console.error(err);
+        showNotice("Submission failed.");
+      } finally {
+        setLoading(button, false);
+      }
+    }
+
+    async function submitRequest(e) {
+      e.preventDefault();
+      const button = e.currentTarget.querySelector("button[type=submit]");
+      setLoading(button, true);
+      try {
+        const imageDataURL = await previewData("request-preview");
+        await addDoc(collection(db, `${DATA_ROOT}/material_requests`), {
+          personInCharge: document.getElementById("request-person").value,
+          purpose: document.getElementById("request-purpose").value,
+          materialName: document.getElementById("request-material").value,
+          quantity: Number(document.getElementById("request-quantity").value) || 0,
+          dateNeeded: document.getElementById("request-date").value,
+          deliveryAddress: document.getElementById("request-address").value,
+          status: "new",
+          imageDataURL,
+          timestamp: serverTimestamp(),
+          submitterId: userId
+        });
+        e.currentTarget.reset();
+        document.getElementById("request-preview").classList.add("hidden");
+        showNotice("Request submitted successfully.");
+      } catch (err) {
+        console.error(err);
+        showNotice("Submission failed.");
+      } finally {
+        setLoading(button, false);
+      }
+    }
+
+    async function adminLogin(e) {
+      e.preventDefault();
+      try {
+        await signInWithEmailAndPassword(auth, document.getElementById("admin-email").value.trim(), document.getElementById("admin-password").value);
+        setTab("admin");
+      } catch (err) {
+        console.error(err);
+        document.getElementById("login-error").classList.remove("hidden");
+      }
+    }
+
+    async function adminLogout() {
+      await signOut(auth);
+      await signInAnonymously(auth);
+      isAdmin = false;
+      setTab("stock");
+      showNotice("Logged out from admin mode.");
+    }
+
+    async function deleteItem(e) {
+      if (!isAdmin) return;
+      const { id, type } = e.currentTarget.dataset;
+      const collectionName = type === "log" ? "inventory_logs" : "material_requests";
+      await deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, id)).catch(err => showNotice("Deletion failed: " + err.message));
+    }
+
+    async function updateRequest(id, data) {
+      if (!isAdmin) return;
+      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), data).catch(err => showNotice("Update failed: " + err.message));
+    }
+
+    function bindPhoto(inputId, previewId) {
+      const input = document.getElementById(inputId);
+      const preview = document.getElementById(previewId);
+      input.addEventListener("change", () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => { preview.src = reader.result; preview.classList.remove("hidden"); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function previewData(id) {
+      const img = document.getElementById(id);
+      if (!img?.src?.startsWith("data:image")) return "";
+      return resizeImage(img.src);
+    }
+
+    function resizeImage(dataUrl) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const max = 700;
+          let { width, height } = img;
+          if (width > height && width > max) { height *= max / width; width = max; }
+          if (height >= width && height > max) { width *= max / height; height = max; }
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", .72));
+        };
+        img.onerror = () => resolve("");
+        img.src = dataUrl;
+      });
+    }
+
+    function setLoading(button, active) {
+      button.disabled = active;
+      button.querySelector(".loader")?.classList.toggle("hidden", !active);
+    }
+
+    function formatTime(ts) {
+      if (!ts?.toDate) return "Just now";
+      return ts.toDate().toLocaleString();
+    }
+
+    function showNotice(message) {
+      document.getElementById("notice-text").textContent = message;
+      document.getElementById("notice").classList.remove("hidden");
+      document.getElementById("notice").classList.add("flex");
+    }
+
+    window.closeNotice = () => {
+      document.getElementById("notice").classList.add("hidden");
+      document.getElementById("notice").classList.remove("flex");
+    };
+
+    function openLightbox(src) {
+      document.getElementById("lightbox-img").src = src;
+      document.getElementById("lightbox").classList.remove("hidden");
+      document.getElementById("lightbox").classList.add("flex");
+    }
+
+    window.closeLightbox = () => {
+      document.getElementById("lightbox").classList.add("hidden");
+      document.getElementById("lightbox").classList.remove("flex");
+    };
+
+    render();
+  </script>
+</body>
+</html>
