@@ -212,15 +212,11 @@
           <div class="flex flex-wrap gap-2">
             <button id="print-log" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">Print</button>
             <button id="export-csv" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">Export CSV</button>
-            <button id="export-json" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">Export JSON</button>
-            ${isAdmin ? `<button id="delete-shown" class="btn btn-red px-3 py-2" type="button">Delete Shown Records</button>` : ""}
           </div>
         </div>
         <div id="log-list" class="space-y-3"></div>`;
       document.getElementById("print-log").addEventListener("click", printLogs);
       document.getElementById("export-csv").addEventListener("click", () => exportLogs("csv"));
-      document.getElementById("export-json").addEventListener("click", () => exportLogs("json"));
-      document.getElementById("delete-shown")?.addEventListener("click", deleteShownLogs);
       const list = document.getElementById("log-list");
       if (!items.length) {
         list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No records found</div>`;
@@ -466,10 +462,6 @@
         return;
       }
       const date = new Date().toISOString().slice(0, 10);
-      if (format === "json") {
-        downloadFile(`airnovation-log-${date}.json`, JSON.stringify(rows, null, 2), "application/json");
-        return;
-      }
       const headers = ["type", "status", "time", "pic", "usedFor", "materialName", "quantity", "remark", "location", "dateNeeded", "deliveryAddress", "handledBy"];
       const csv = [
         headers.join(","),
@@ -527,21 +519,6 @@
       printWindow.document.close();
       printWindow.focus();
       printWindow.print();
-    }
-
-    async function deleteShownLogs() {
-      if (!isAdmin || !currentLogItems.length) return;
-      const ok = window.confirm(`Delete ${currentLogItems.length} shown records? Please export or print first. This cannot be undone.`);
-      if (!ok) return;
-      try {
-        await Promise.all(currentLogItems.map(item => {
-          const collectionName = item.kind === "stock" ? "inventory_logs" : "material_requests";
-          return deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, item.id));
-        }));
-        showNotice("Shown records deleted.");
-      } catch (err) {
-        showNotice("Delete failed: " + formatFirebaseError(err));
-      }
     }
 
     function csvCell(value) {
