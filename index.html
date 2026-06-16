@@ -283,12 +283,13 @@
 
     async function submitStock(e) {
       e.preventDefault();
-      const button = e.currentTarget.querySelector("button[type=submit]");
+      const form = e.currentTarget;
+      const button = form.querySelector("button[type=submit]");
       setLoading(button, true);
       try {
         const imageDataURL = await previewData("stock-preview");
         await addDoc(collection(db, `${DATA_ROOT}/inventory_logs`), {
-          type: e.currentTarget.querySelector("[name=type]:checked").value,
+          type: form.querySelector("[name=type]:checked").value,
           itemName: document.getElementById("item-name").value,
           quantity: Number(document.getElementById("quantity").value) || 0,
           departmentHead: document.getElementById("department-head").value,
@@ -297,7 +298,7 @@
           timestamp: serverTimestamp(),
           submitterId: userId
         });
-        e.currentTarget.reset();
+        form.reset();
         document.getElementById("stock-preview").classList.add("hidden");
         showNotice("Record submitted successfully.");
       } catch (err) {
@@ -310,7 +311,8 @@
 
     async function submitRequest(e) {
       e.preventDefault();
-      const button = e.currentTarget.querySelector("button[type=submit]");
+      const form = e.currentTarget;
+      const button = form.querySelector("button[type=submit]");
       setLoading(button, true);
       try {
         const imageDataURL = await previewData("request-preview");
@@ -326,7 +328,7 @@
           timestamp: serverTimestamp(),
           submitterId: userId
         });
-        e.currentTarget.reset();
+        form.reset();
         document.getElementById("request-preview").classList.add("hidden");
         showNotice("Request submitted successfully.");
       } catch (err) {
