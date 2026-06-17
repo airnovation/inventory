@@ -69,7 +69,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBZ0-KPzLs13U7uG0KIqiYbKdbOBqVT7cQ",
@@ -325,8 +325,8 @@
     function requestCard(req, adminControls) {
       const el = document.createElement("article");
       const requestItems = getRequestItems(req);
-      const itemRows = requestItems.map((item, index) => adminControls ? adminRequestItemRow(req, item, index) : logRequestItemRow(req, item)).join("");
-      const displayStatus = getRequestDisplayStatus(req, requestItems);
+      const itemRows = requestItems.map(requestItemRow).join("");
+      const displayStatus = normalizeStatus(req.status);
       el.className = "card border-l-4 border-l-blue-500 p-4";
       el.innerHTML = `
         <div class="flex justify-between gap-4">
@@ -336,12 +336,13 @@
         <div class="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-600">
           <p></p><p></p>
           <div class="mt-3 overflow-x-auto">
-            <table class="w-full ${adminControls ? "min-w-[760px]" : "min-w-[560px]"} text-left text-sm">
-              <thead class="text-slate-400"><tr>${adminControls ? adminRequestHeader() : logRequestHeader()}</tr></thead>
+            <table class="w-full min-w-[420px] text-left text-sm">
+              <thead class="text-slate-400"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Remark</th></tr></thead>
               <tbody>${itemRows}</tbody>
             </table>
           </div>
           ${adminControls ? statusAudit(req) : ""}
+          ${req.adminRemark ? `<p class="mt-2 rounded-md bg-slate-50 p-3 font-semibold text-slate-600">Admin Remark: ${escapeHtml(req.adminRemark)}</p>` : ""}
           ${req.arrivalDate ? `<p class="mt-2 font-bold text-emerald-600">ETA: ${req.arrivalDate}</p>` : ""}
         </div>
         ${req.imageDataURL ? `<img src="${req.imageDataURL}" class="thumb mt-3" alt="Request image">` : ""}
@@ -356,50 +357,25 @@
       return el;
     }
 
-    function logRequestHeader() {
-      return `<th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Remark</th><th class="pb-2 pr-3">Status</th><th class="pb-2 pr-3">Admin Remark</th>`;
-    }
-
-    function adminRequestHeader() {
-      return `<th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">User Remark</th><th class="pb-2 pr-3">Status</th><th class="pb-2 pr-3">Admin Remark</th><th class="pb-2 pr-3">Action</th>`;
-    }
-
-    function logRequestItemRow(req, item) {
-      const status = getItemStatus(item, req.status);
-      const handled = item.adminUpdatedBy ? `<div class="mt-1 text-xs text-slate-400">By: ${escapeHtml(item.adminUpdatedBy)}</div>` : "";
+    function requestItemRow(item) {
       return `
         <tr class="border-t border-slate-100">
           <td class="py-2 pr-3 font-semibold text-slate-700">${escapeHtml(item.materialName || "Untitled material")}</td>
           <td class="py-2 pr-3">${escapeHtml(String(item.quantity || 0))}</td>
           <td class="py-2 pr-3">${escapeHtml(item.remark || "-")}</td>
-          <td class="py-2 pr-3"><span class="badge ${getStatusClass(status)}">${getStatusLabel(status)}</span>${handled}</td>
-          <td class="py-2 pr-3">${escapeHtml(item.adminRemark || "-")}</td>
-        </tr>`;
-    }
-
-    function adminRequestItemRow(req, item, index) {
-      const options = getSelectableStatusOptions().map(([status, label]) => {
-        const selected = getItemStatus(item, req.status) === status ? " selected" : "";
-        return `<option value="${status}"${selected}>${label}</option>`;
-      }).join("");
-      const handled = item.adminUpdatedBy ? `<div class="mt-1 text-xs text-slate-400">By: ${escapeHtml(item.adminUpdatedBy)}${item.adminUpdatedAt ? ` | ${escapeHtml(formatDateString(item.adminUpdatedAt))}` : ""}</div>` : "";
-      return `
-        <tr class="border-t border-slate-100">
-          <td class="py-2 pr-3 font-semibold text-slate-700">${escapeHtml(item.materialName || "Untitled material")}</td>
-          <td class="py-2 pr-3">${escapeHtml(String(item.quantity || 0))}</td>
-          <td class="py-2 pr-3">${escapeHtml(item.remark || "-")}</td>
-          <td class="py-2 pr-3">
-            <select class="request-item-status field min-w-[140px]" data-id="${req.id}" data-index="${index}" aria-label="Item status">${options}</select>
-            ${handled}
-          </td>
-          <td class="py-2 pr-3"><input class="request-item-admin-remark field min-w-[180px]" data-id="${req.id}" data-index="${index}" value="${escapeAttr(item.adminRemark || "")}" placeholder="Admin remark"></td>
-          <td class="py-2 pr-3"><button class="save-request-item btn bg-slate-200 px-3 py-2 text-slate-700" data-id="${req.id}" data-index="${index}" type="button">Save</button></td>
         </tr>`;
     }
 
     function adminButtons(req) {
-      return `<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+      const options = getStatusOptions().map(([status, label]) => {
+        const selected = normalizeStatus(req.status) === status ? " selected" : "";
+        return `<option value="${status}"${selected}>${label}</option>`;
+      }).join("");
+      return `<div class="mt-3 grid gap-2 border-t border-slate-100 pt-3 md:grid-cols-[auto_auto_1fr_auto] md:items-center">
         <input class="eta field w-auto" type="date" data-id="${req.id}" value="${req.arrivalDate || ""}" title="ETA">
+        <select class="request-status field w-auto min-w-[160px]" data-id="${req.id}" aria-label="Request status">${options}</select>
+        <input class="request-admin-remark field" data-id="${req.id}" value="${escapeAttr(req.adminRemark || "")}" placeholder="Admin remark">
+        <button class="save-request-admin btn bg-slate-200 px-3 py-2 text-slate-700" data-id="${req.id}" type="button">Save</button>
         <button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button>
       </div>`;
     }
@@ -407,11 +383,8 @@
     function bindCardActions(el) {
       el.querySelectorAll(".thumb").forEach(img => img.addEventListener("click", () => openLightbox(img.src)));
       el.querySelector(".delete")?.addEventListener("click", deleteItem);
-      el.querySelectorAll(".request-status").forEach(select => {
-        select.addEventListener("change", e => updateRequestStatus(e.currentTarget.dataset.id, e.currentTarget.value));
-      });
-      el.querySelectorAll(".save-request-item").forEach(button => {
-        button.addEventListener("click", saveRequestItemAdminUpdate);
+      el.querySelectorAll(".save-request-admin").forEach(button => {
+        button.addEventListener("click", saveRequestAdminUpdate);
       });
       el.querySelector(".eta")?.addEventListener("change", e => updateRequest(e.currentTarget.dataset.id, { arrivalDate: e.currentTarget.value }));
     }
@@ -490,9 +463,7 @@
       return [...document.querySelectorAll(".request-item-row")].map(row => ({
         materialName: row.querySelector(".request-material").value.trim(),
         quantity: Number(row.querySelector(".request-quantity").value) || 0,
-        remark: row.querySelector(".request-remark").value.trim(),
-        adminStatus: "new",
-        adminRemark: ""
+        remark: row.querySelector(".request-remark").value.trim()
       })).filter(item => item.materialName && item.quantity > 0);
     }
 
@@ -501,27 +472,17 @@
       return [{
         materialName: req.materialName || "Untitled material",
         quantity: req.quantity || 0,
-        remark: req.remark || "",
-        adminStatus: normalizeStatus(req.status),
-        adminRemark: req.adminRemark || ""
+        remark: req.remark || ""
       }];
     }
 
-    function getSelectableStatusOptions() {
+    function getStatusOptions() {
       return [
         ["new", "New"],
         ["processing", "Process"],
         ["still_pending", "Still Pending"],
         ["rejected", "Rejected"],
         ["completed", "Completed"]
-      ];
-    }
-
-    function getStatusOptions() {
-      return [
-        ...getSelectableStatusOptions(),
-        ["partial_processed", "Partially Processed"],
-        ["partial_rejected", "Partially Rejected"]
       ];
     }
 
@@ -541,9 +502,7 @@
         processing: "bg-blue-100 text-blue-700",
         still_pending: "bg-amber-100 text-amber-700",
         rejected: "bg-slate-200 text-slate-700",
-        completed: "bg-emerald-100 text-emerald-700",
-        partial_processed: "bg-indigo-100 text-indigo-700",
-        partial_rejected: "bg-orange-100 text-orange-700"
+        completed: "bg-emerald-100 text-emerald-700"
       })[normalizeStatus(status)] || "bg-red-100 text-red-700";
     }
 
@@ -552,38 +511,13 @@
         new: 1,
         still_pending: 2,
         processing: 3,
-        partial_processed: 4,
-        partial_rejected: 5,
-        rejected: 6,
-        completed: 7
+        rejected: 4,
+        completed: 5
       })[normalizeStatus(status)] || 6;
     }
 
-    function getItemStatus(item, fallbackStatus = "new") {
-      return normalizeStatus(item.adminStatus || item.status || fallbackStatus || "new");
-    }
-
-    function getRequestDisplayStatus(req, items = getRequestItems(req)) {
-      if (!items.length) return normalizeStatus(req.status);
-      const statuses = items.map(item => getItemStatus(item, req.status));
-      if (statuses.every(status => status === "new")) return "new";
-      if (statuses.every(status => status === "completed")) return "completed";
-      if (statuses.every(status => status === "rejected")) return "rejected";
-      if (statuses.some(status => status === "rejected")) return "partial_rejected";
-      if (statuses.every(status => status === "still_pending")) return "still_pending";
-      if (statuses.some(status => status === "processing" || status === "completed" || status === "still_pending")) return "partial_processed";
-      return normalizeStatus(req.status);
-    }
-
     function statusAudit(req) {
-      const history = Array.isArray(req.statusHistory) ? req.statusHistory.slice(-4) : [];
-      const latest = req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(req.statusUpdatedBy)}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
-      if (!history.length) return latest;
-      const rows = history.map(entry => {
-        const when = entry.at ? new Date(entry.at).toLocaleString() : "Just now";
-        return `<li>${escapeHtml(getStatusLabel(entry.status))} by ${escapeHtml(entry.by || "Unknown")} (${escapeHtml(when)})</li>`;
-      }).join("");
-      return `${latest}<div class="mt-2 text-xs text-slate-500"><div class="font-bold text-slate-600">Status History</div><ul class="mt-1 list-disc space-y-1 pl-5">${rows}</ul></div>`;
+      return req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(req.statusUpdatedBy)}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
     }
 
     function buildExportRows() {
@@ -602,13 +536,11 @@
         if (item.kind === "request") {
           return getRequestItems(item).map(requestItem => ({
             ...base,
-            status: getStatusLabel(getItemStatus(requestItem, item.status)),
             materialName: requestItem.materialName || "",
             quantity: requestItem.quantity || 0,
             unit: "",
             remark: requestItem.remark || "",
-            adminRemark: requestItem.adminRemark || "",
-            handledBy: requestItem.adminUpdatedBy || base.handledBy || ""
+            adminRemark: item.adminRemark || ""
           }));
         }
         return getStockItems(item).map(stockItem => ({
@@ -878,64 +810,25 @@
       await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), data).catch(err => showNotice("Update failed: " + formatFirebaseError(err)));
     }
 
-    async function updateRequestStatus(id, status) {
-      if (!isAdmin) return;
-      const email = auth.currentUser?.email || "Unknown admin";
-      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), {
-        status,
-        statusUpdatedBy: email,
-        statusUpdatedAt: serverTimestamp(),
-        statusHistory: arrayUnion({
-          status,
-          by: email,
-          at: new Date().toISOString()
-        })
-      }).catch(err => showNotice("Status update failed: " + formatFirebaseError(err)));
-    }
-
-    async function saveRequestItemAdminUpdate(e) {
+    async function saveRequestAdminUpdate(e) {
       if (!isAdmin) return;
       const button = e.currentTarget;
       const id = button.dataset.id;
-      const index = Number(button.dataset.index);
-      const row = button.closest("tr");
-      const request = materialRequests.find(item => item.id === id);
-      if (!request || !row || Number.isNaN(index)) return;
-
-      const items = getRequestItems(request).map(item => ({ ...item }));
-      if (!items[index]) return;
-
+      const panel = button.closest(".grid");
+      if (!panel) return;
       const email = auth.currentUser?.email || "Unknown admin";
-      const status = row.querySelector(".request-item-status")?.value || "new";
-      const adminRemark = row.querySelector(".request-item-admin-remark")?.value.trim() || "";
-      const updatedAt = new Date().toISOString();
+      const status = panel.querySelector(".request-status")?.value || "new";
+      const adminRemark = panel.querySelector(".request-admin-remark")?.value.trim() || "";
 
-      items[index] = {
-        ...items[index],
-        adminStatus: status,
-        adminRemark,
-        adminUpdatedBy: email,
-        adminUpdatedAt: updatedAt
-      };
-
-      const requestStatus = getRequestDisplayStatus(request, items);
       setLoading(button, true);
       await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), {
-        items,
-        status: requestStatus,
+        status,
+        adminRemark,
         statusUpdatedBy: email,
-        statusUpdatedAt: serverTimestamp(),
-        statusHistory: arrayUnion({
-          status: requestStatus,
-          item: items[index].materialName || `Item ${index + 1}`,
-          itemStatus: status,
-          adminRemark,
-          by: email,
-          at: updatedAt
-        })
+        statusUpdatedAt: serverTimestamp()
       })
-        .then(() => showNotice("Item update saved."))
-        .catch(err => showNotice("Item update failed: " + formatFirebaseError(err)))
+        .then(() => showNotice("Request update saved."))
+        .catch(err => showNotice("Update failed: " + formatFirebaseError(err)))
         .finally(() => setLoading(button, false));
     }
 
