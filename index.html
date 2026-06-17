@@ -82,6 +82,11 @@
     };
 
     const DATA_ROOT = "artifacts/inventory-tracker-app-dev/public/data";
+    const ADMIN_NAMES = {
+      "cpchong@airnovation.com.sg": "Chong",
+      "aepl01@airnovation.com.sg": "Hui Xin",
+      "nickylee@airnovation.com.sg": "Nicky Lee"
+    };
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -517,7 +522,7 @@
     }
 
     function statusAudit(req) {
-      return req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(req.statusUpdatedBy)}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
+      return req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(adminDisplayName(req.statusUpdatedBy))}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
     }
 
     function buildExportRows() {
@@ -531,7 +536,7 @@
           location: item.location || "",
           dateNeeded: item.dateNeeded || "",
           deliveryAddress: item.deliveryAddress || "",
-          handledBy: isAdmin ? (item.statusUpdatedBy || "") : ""
+          handledBy: isAdmin ? adminDisplayName(item.statusUpdatedBy || "") : ""
         };
         if (item.kind === "request") {
           return getRequestItems(item).map(requestItem => ({
@@ -889,6 +894,10 @@
       if (err?.code) parts.push(err.code);
       if (err?.message) parts.push(err.message);
       return parts.join(": ") || "Unknown error";
+    }
+
+    function adminDisplayName(email) {
+      return ADMIN_NAMES[email] || email || "Unknown admin";
     }
 
     function escapeHtml(value) {
