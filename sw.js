@@ -1,4 +1,4 @@
-const CACHE_NAME = "airnovation-inventory-v4";
+const CACHE_NAME = "airnovation-inventory-v5";
 const APP_ASSETS = [
   "./",
   "./index.html",

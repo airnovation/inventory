@@ -45,7 +45,7 @@
     </header>
 
     <section class="rounded-xl bg-white p-2 shadow-lg shadow-slate-200/70">
-      <nav class="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Tabs">
+      <nav id="app-nav" class="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Tabs">
         <button class="tab active" data-tab="stock">Stock In/Out</button>
         <button class="tab" data-tab="request">Material Request</button>
         <button class="tab" data-tab="logs">Log</button>
@@ -68,7 +68,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -87,6 +87,9 @@
       "aepl01@airnovation.com.sg": "Hui Xin",
       "nickylee@airnovation.com.sg": "Nicky Lee"
     };
+    const STAFF_EMAILS = new Set([
+      "aepl.airnovation@gmail.com"
+    ]);
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -97,46 +100,106 @@
     let inventoryLogs = [];
     let materialRequests = [];
     let currentLogItems = [];
-    let unsubscribed = false;
+    let unsubscribeInventory = null;
+    let unsubscribeRequests = null;
     let inventorySnapshotReady = false;
     let requestSnapshotReady = false;
     let notificationAudio = null;
 
     const view = document.getElementById("view");
     const authState = document.getElementById("auth-state");
+    const appNav = document.getElementById("app-nav");
     document.addEventListener("click", unlockNotificationSound, { once: true });
 
     onAuthStateChanged(auth, async (user) => {
+      stopSnapshots();
       if (!user) {
-        await signInAnonymously(auth).catch(err => showNotice("Cannot connect to service: " + formatFirebaseError(err)));
+        userId = null;
+        isAdmin = false;
+        authState.textContent = "";
+        appNav.classList.add("hidden");
+        renderUserLogin();
+        return;
+      }
+      const email = (user.email || "").toLowerCase();
+      if (!isAllowedUser(email)) {
+        await signOut(auth);
+        showNotice("This account is not authorized to use the application.");
         return;
       }
       userId = user.uid;
-      isAdmin = !user.isAnonymous;
-      authState.textContent = isAdmin ? `Admin: ${user.email}` : "Staff mode";
-      if (!unsubscribed) {
-        unsubscribed = true;
-        onSnapshot(
-          query(collection(db, `${DATA_ROOT}/inventory_logs`)),
-          snap => {
-            notifyNewRecords(snap, "New stock record received.", "stock");
-            inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            render();
-          },
-          err => showNotice("Cannot load inventory logs: " + formatFirebaseError(err))
-        );
-        onSnapshot(
-          query(collection(db, `${DATA_ROOT}/material_requests`)),
-          snap => {
-            notifyNewRecords(snap, "New material request received.", "request");
-            materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            render();
-          },
-          err => showNotice("Cannot load material requests: " + formatFirebaseError(err))
-        );
-      }
+      isAdmin = Object.hasOwn(ADMIN_NAMES, email);
+      authState.innerHTML = `<span>${isAdmin ? `Admin: ${escapeHtml(adminDisplayName(email))}` : `Staff: ${escapeHtml(email)}`}</span>
+        <button id="app-logout" class="ml-3 font-bold text-blue-600" type="button">Logout</button>`;
+      document.getElementById("app-logout").addEventListener("click", logoutUser);
+      appNav.classList.remove("hidden");
+      startSnapshots();
       render();
     });
+
+    function isAllowedUser(email) {
+      return Object.hasOwn(ADMIN_NAMES, email) || STAFF_EMAILS.has(email);
+    }
+
+    function startSnapshots() {
+      unsubscribeInventory = onSnapshot(
+        query(collection(db, `${DATA_ROOT}/inventory_logs`)),
+        snap => {
+          notifyNewRecords(snap, "New stock record received.", "stock");
+          inventoryLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        },
+        err => showNotice("Cannot load inventory logs: " + formatFirebaseError(err))
+      );
+      unsubscribeRequests = onSnapshot(
+        query(collection(db, `${DATA_ROOT}/material_requests`)),
+        snap => {
+          notifyNewRecords(snap, "New material request received.", "request");
+          materialRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        },
+        err => showNotice("Cannot load material requests: " + formatFirebaseError(err))
+      );
+    }
+
+    function stopSnapshots() {
+      unsubscribeInventory?.();
+      unsubscribeRequests?.();
+      unsubscribeInventory = null;
+      unsubscribeRequests = null;
+    }
+
+    function renderUserLogin() {
+      view.innerHTML = `
+        <form id="user-login" class="mx-auto max-w-sm space-y-4 py-8">
+          <h2 class="text-xl font-bold text-slate-800">Staff & Admin Login</h2>
+          <input id="user-email" type="email" required autocomplete="username" class="field" placeholder="Email">
+          <input id="user-password" type="password" required autocomplete="current-password" class="field" placeholder="Password">
+          <p id="user-login-error" class="hidden text-sm font-semibold text-red-600"></p>
+          <button class="btn btn-primary w-full" type="submit">Login</button>
+        </form>`;
+      document.getElementById("user-login").addEventListener("submit", userLogin);
+    }
+
+    async function userLogin(e) {
+      e.preventDefault();
+      const error = document.getElementById("user-login-error");
+      try {
+        const email = document.getElementById("user-email").value.trim().toLowerCase();
+        if (!isAllowedUser(email)) throw new Error("This email is not authorized.");
+        await signInWithEmailAndPassword(auth, email, document.getElementById("user-password").value);
+      } catch (err) {
+        console.error(err);
+        error.textContent = "Login failed: " + formatFirebaseError(err);
+        error.classList.remove("hidden");
+      }
+    }
+
+    async function logoutUser() {
+      await signOut(auth).catch(err => showNotice("Logout failed: " + formatFirebaseError(err)));
+      currentTab = "stock";
+      document.querySelectorAll(".tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === "stock"));
+    }
 
     function setTab(tab) {
       currentTab = tab;
@@ -777,7 +840,9 @@
       e.preventDefault();
       try {
         unlockNotificationSound();
-        await signInWithEmailAndPassword(auth, document.getElementById("admin-email").value.trim(), document.getElementById("admin-password").value);
+        const email = document.getElementById("admin-email").value.trim().toLowerCase();
+        if (!Object.hasOwn(ADMIN_NAMES, email)) throw new Error("This email does not have administrator access.");
+        await signInWithEmailAndPassword(auth, email, document.getElementById("admin-password").value);
         setTab("admin");
       } catch (err) {
         console.error(err);
@@ -787,11 +852,7 @@
     }
 
     async function adminLogout() {
-      await signOut(auth);
-      await signInAnonymously(auth);
-      isAdmin = false;
-      setTab("stock");
-      showNotice("Logged out from admin mode.");
+      await logoutUser();
     }
 
     async function deleteItem(e) {
