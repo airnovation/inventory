@@ -29,6 +29,9 @@
     .field:focus { outline: 2px solid rgba(37, 99, 235, .25); border-color: #2563eb; }
     .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, .06); }
     .thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer; }
+    .photo-preview { position: relative; width: 72px; height: 72px; }
+    .photo-preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer; }
+    .photo-remove { position: absolute; top: -7px; right: -7px; width: 24px; height: 24px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 18px; font-weight: 700; line-height: 1; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .2rem .6rem; font-size: .75rem; font-weight: 700; }
     .loader { width: 18px; height: 18px; border-radius: 999px; border: 3px solid rgba(255,255,255,.4); border-top-color: #fff; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -105,6 +108,9 @@
     let inventorySnapshotReady = false;
     let requestSnapshotReady = false;
     let notificationAudio = null;
+    const selectedPhotos = { stock: [], request: [] };
+    const MAX_PHOTOS = 5;
+    const MAX_PHOTO_DATA_SIZE = 800000;
 
     const view = document.getElementById("view");
     const authState = document.getElementById("auth-state");
@@ -229,8 +235,16 @@
               <label class="block text-sm font-semibold text-slate-600">Dept./PIC <input id="department-head" required class="field mt-1"></label>
               <label class="block text-sm font-semibold text-slate-600">Location <input id="location" required class="field mt-1"></label>
             </div>
-            <label class="block text-sm font-semibold text-slate-600">Photo / Attachment<input id="stock-photo" type="file" accept="image/*" class="field mt-1"></label>
-            <img id="stock-preview" class="thumb hidden" alt="Stock preview">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block text-sm font-semibold text-slate-600">Choose Photos
+                <input id="stock-photo" type="file" accept="image/*" multiple class="field mt-1">
+              </label>
+              <label class="block text-sm font-semibold text-slate-600">Take Photo
+                <input id="stock-camera" type="file" accept="image/*" capture="environment" class="field mt-1">
+              </label>
+            </div>
+            <p class="text-xs font-medium text-slate-500">Up to 5 photos per submission.</p>
+            <div id="stock-previews" class="flex flex-wrap gap-3"></div>
           </section>
 
           <section class="space-y-3">
@@ -255,7 +269,8 @@
           </section>
           <button class="btn btn-primary w-full" type="submit"><span>Submit</span><span class="loader ml-3 hidden"></span></button>
         </form>`;
-      bindPhoto("stock-photo", "stock-preview");
+      selectedPhotos.stock = [];
+      bindPhotos("stock", "stock-photo", "stock-camera", "stock-previews");
       addStockItemRow();
       document.getElementById("add-stock-item").addEventListener("click", addStockItemRow);
       document.getElementById("stock-form").addEventListener("submit", submitStock);
@@ -273,8 +288,16 @@
               <label class="block text-sm font-semibold text-slate-600">Date Needed <input id="request-date" type="date" class="field mt-1"></label>
               <label class="block text-sm font-semibold text-slate-600">Delivery Address <input id="request-address" required class="field mt-1"></label>
             </div>
-            <label class="block text-sm font-semibold text-slate-600">Photo / Attachment (Optional)<input id="request-photo" type="file" accept="image/*" class="field mt-1"></label>
-            <img id="request-preview" class="thumb hidden" alt="Request preview">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block text-sm font-semibold text-slate-600">Choose Photos (Optional)
+                <input id="request-photo" type="file" accept="image/*" multiple class="field mt-1">
+              </label>
+              <label class="block text-sm font-semibold text-slate-600">Take Photo
+                <input id="request-camera" type="file" accept="image/*" capture="environment" class="field mt-1">
+              </label>
+            </div>
+            <p class="text-xs font-medium text-slate-500">Up to 5 photos per submission.</p>
+            <div id="request-previews" class="flex flex-wrap gap-3"></div>
           </section>
 
           <section class="space-y-3">
@@ -298,7 +321,8 @@
           </section>
           <button class="btn btn-green w-full" type="submit"><span>Submit Request</span><span class="loader ml-3 hidden"></span></button>
         </form>`;
-      bindPhoto("request-photo", "request-preview");
+      selectedPhotos.request = [];
+      bindPhotos("request", "request-photo", "request-camera", "request-previews");
       addRequestItemRow();
       document.getElementById("add-request-item").addEventListener("click", addRequestItemRow);
       document.getElementById("request-form").addEventListener("submit", submitRequest);
@@ -381,7 +405,7 @@
             </table>
           </div>
         </div>
-        ${log.imageDataURL ? `<img src="${log.imageDataURL}" class="thumb mt-3" alt="Log image">` : ""}
+        ${renderRecordImages(log, "Stock")}
         ${isAdmin ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
       el.querySelector("h3").textContent = stockItems.length === 1 ? stockItems[0].itemName : `${stockItems.length} stock items`;
       el.querySelectorAll("p")[0].textContent = `By: ${log.departmentHead || "N/A"}`;
@@ -413,7 +437,7 @@
           ${req.adminRemark ? `<p class="mt-2 rounded-md bg-slate-50 p-3 font-semibold text-slate-600">Admin Remark: ${escapeHtml(req.adminRemark)}</p>` : ""}
           ${req.arrivalDate ? `<p class="mt-2 font-bold text-emerald-600">ETA: ${req.arrivalDate}</p>` : ""}
         </div>
-        ${req.imageDataURL ? `<img src="${req.imageDataURL}" class="thumb mt-3" alt="Request image">` : ""}
+        ${renderRecordImages(req, "Request")}
         ${adminControls ? adminButtons(req) : ""}`;
       el.querySelector("h3").textContent = requestItems.length === 1 ? requestItems[0].materialName : `${requestItems.length} requested items`;
       el.querySelectorAll("p")[0].textContent = `By: ${req.personInCharge || "N/A"} | Items: ${requestItems.length}`;
@@ -767,7 +791,8 @@
       const button = form.querySelector("button[type=submit]");
       setLoading(button, true);
       try {
-        const imageDataURL = await previewData("stock-preview");
+        const imageDataURLs = getSelectedPhotos("stock");
+        validatePhotoPayload(imageDataURLs);
         const stockItems = collectStockItems();
         if (!stockItems.length) {
           showNotice("Please add at least one stock item.");
@@ -781,12 +806,13 @@
           items: stockItems,
           departmentHead: document.getElementById("department-head").value,
           location: document.getElementById("location").value,
-          imageDataURL,
+          imageDataURLs,
           timestamp: serverTimestamp(),
           submitterId: userId
         });
         form.reset();
-        document.getElementById("stock-preview").classList.add("hidden");
+        selectedPhotos.stock = [];
+        renderPhotoPreviews("stock", "stock-previews");
         document.getElementById("stock-items").innerHTML = "";
         addStockItemRow();
         showNotice("Record submitted successfully.");
@@ -804,7 +830,8 @@
       const button = form.querySelector("button[type=submit]");
       setLoading(button, true);
       try {
-        const imageDataURL = await previewData("request-preview");
+        const imageDataURLs = getSelectedPhotos("request");
+        validatePhotoPayload(imageDataURLs);
         const requestItems = collectRequestItems();
         if (!requestItems.length) {
           showNotice("Please add at least one requested item.");
@@ -819,12 +846,13 @@
           dateNeeded: document.getElementById("request-date").value,
           deliveryAddress: document.getElementById("request-address").value,
           status: "new",
-          imageDataURL,
+          imageDataURLs,
           timestamp: serverTimestamp(),
           submitterId: userId
         });
         form.reset();
-        document.getElementById("request-preview").classList.add("hidden");
+        selectedPhotos.request = [];
+        renderPhotoPreviews("request", "request-previews");
         document.getElementById("request-items").innerHTML = "";
         addRequestItemRow();
         showNotice("Request submitted successfully.");
@@ -898,22 +926,88 @@
         .finally(() => setLoading(button, false));
     }
 
-    function bindPhoto(inputId, previewId) {
-      const input = document.getElementById(inputId);
-      const preview = document.getElementById(previewId);
-      input.addEventListener("change", () => {
-        const file = input.files?.[0];
-        if (!file) return;
+    function bindPhotos(type, pickerId, cameraId, previewId) {
+      [pickerId, cameraId].forEach(inputId => {
+        const input = document.getElementById(inputId);
+        input.addEventListener("change", async () => {
+          const remaining = MAX_PHOTOS - selectedPhotos[type].length;
+          const files = [...(input.files || [])].filter(file => file.type.startsWith("image/")).slice(0, remaining);
+          if (!files.length) {
+            if (remaining <= 0) showNotice(`A maximum of ${MAX_PHOTOS} photos is allowed.`);
+            input.value = "";
+            return;
+          }
+          input.disabled = true;
+          try {
+            const images = await Promise.all(files.map(file => readAndResizePhoto(file)));
+            selectedPhotos[type].push(...images.filter(Boolean));
+            renderPhotoPreviews(type, previewId);
+            if ((input.files?.length || 0) > files.length) showNotice(`Only the first ${MAX_PHOTOS} photos were added.`);
+          } finally {
+            input.disabled = false;
+            input.value = "";
+          }
+        });
+      });
+    }
+
+    function renderPhotoPreviews(type, previewId) {
+      const container = document.getElementById(previewId);
+      if (!container) return;
+      container.innerHTML = "";
+      selectedPhotos[type].forEach((src, index) => {
+        const preview = document.createElement("div");
+        preview.className = "photo-preview";
+        const image = document.createElement("img");
+        image.src = src;
+        image.alt = `Selected photo ${index + 1}`;
+        image.addEventListener("click", () => openLightbox(src));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "photo-remove";
+        remove.title = "Remove photo";
+        remove.setAttribute("aria-label", `Remove photo ${index + 1}`);
+        remove.innerHTML = "&times;";
+        remove.addEventListener("click", () => {
+          selectedPhotos[type].splice(index, 1);
+          renderPhotoPreviews(type, previewId);
+        });
+        preview.append(image, remove);
+        container.appendChild(preview);
+      });
+    }
+
+    function readAndResizePhoto(file) {
+      return new Promise(resolve => {
         const reader = new FileReader();
-        reader.onload = () => { preview.src = reader.result; preview.classList.remove("hidden"); };
+        reader.onload = async () => resolve(await resizeImage(reader.result));
+        reader.onerror = () => resolve("");
         reader.readAsDataURL(file);
       });
     }
 
-    async function previewData(id) {
-      const img = document.getElementById(id);
-      if (!img?.src?.startsWith("data:image")) return "";
-      return resizeImage(img.src);
+    function getSelectedPhotos(type) {
+      return [...selectedPhotos[type]];
+    }
+
+    function validatePhotoPayload(images) {
+      const totalSize = images.reduce((sum, image) => sum + image.length, 0);
+      if (totalSize > MAX_PHOTO_DATA_SIZE) {
+        throw new Error("The selected photos are still too large. Please remove one or more photos and try again.");
+      }
+    }
+
+    function getRecordImages(record) {
+      if (Array.isArray(record.imageDataURLs)) return record.imageDataURLs.filter(src => typeof src === "string" && src.startsWith("data:image"));
+      return record.imageDataURL?.startsWith("data:image") ? [record.imageDataURL] : [];
+    }
+
+    function renderRecordImages(record, label) {
+      const images = getRecordImages(record);
+      if (!images.length) return "";
+      return `<div class="mt-3 flex flex-wrap gap-2">${images.map((src, index) =>
+        `<img src="${src}" class="thumb" alt="${label} image ${index + 1}">`
+      ).join("")}</div>`;
     }
 
     function resizeImage(dataUrl) {
