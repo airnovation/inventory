@@ -16,7 +16,7 @@
   <style>
     body { font-family: Inter, sans-serif; background: #f4f7fb; }
     h1, h2, h3 { font-family: Poppins, sans-serif; }
-    .tab { flex: 1; min-height: 44px; border-radius: 8px; font-weight: 600; color: #475569; transition: .2s; }
+    .tab { flex: 1; min-width: 105px; min-height: 44px; border-radius: 8px; font-weight: 600; color: #475569; transition: .2s; }
     .tab.active { background: #fff; color: #2563eb; box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
     .btn { display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; font-weight: 700; padding: .75rem 1rem; transition: .2s; }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
@@ -48,11 +48,12 @@
     </header>
 
     <section class="rounded-xl bg-white p-2 shadow-lg shadow-slate-200/70">
-      <nav id="app-nav" class="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Tabs">
+      <nav id="app-nav" class="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1" aria-label="Tabs">
         <button class="tab active" data-tab="stock">Stock In/Out</button>
         <button class="tab" data-tab="request">Material Request</button>
         <button class="tab" data-tab="logs">Log</button>
         <button class="tab" data-tab="admin">Admin</button>
+        <button class="tab" data-tab="audit">Audit Trail</button>
       </nav>
       <div id="view" class="min-h-[430px] p-4 md:p-6"></div>
     </section>
@@ -72,7 +73,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, doc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBZ0-KPzLs13U7uG0KIqiYbKdbOBqVT7cQ",
@@ -85,6 +86,7 @@
     };
 
     const DATA_ROOT = "artifacts/inventory-tracker-app-dev/public/data";
+    const AUDIT_PATH = `${DATA_ROOT}/inventory_admin_audit`;
     const ADMIN_NAMES = {
       "cpchong@airnovation.com.sg": "Chong",
       "aepl01@airnovation.com.sg": "Hui Xin",
@@ -102,9 +104,11 @@
     let currentTab = "stock";
     let inventoryLogs = [];
     let materialRequests = [];
+    let adminAudits = [];
     let currentLogItems = [];
     let unsubscribeInventory = null;
     let unsubscribeRequests = null;
+    let unsubscribeAudits = null;
     let inventorySnapshotReady = false;
     let requestSnapshotReady = false;
     let notificationAudio = null;
@@ -115,6 +119,8 @@
     const view = document.getElementById("view");
     const authState = document.getElementById("auth-state");
     const appNav = document.getElementById("app-nav");
+    const adminTab = document.querySelector('[data-tab="admin"]');
+    const auditTab = document.querySelector('[data-tab="audit"]');
     document.addEventListener("click", unlockNotificationSound, { once: true });
 
     onAuthStateChanged(auth, async (user) => {
@@ -122,8 +128,11 @@
       if (!user) {
         userId = null;
         isAdmin = false;
+        adminAudits = [];
         authState.textContent = "";
         appNav.classList.add("hidden");
+        adminTab.classList.add("hidden");
+        auditTab.classList.add("hidden");
         renderUserLogin();
         return;
       }
@@ -139,6 +148,9 @@
         <button id="app-logout" class="ml-3 font-bold text-blue-600" type="button">Logout</button>`;
       document.getElementById("app-logout").addEventListener("click", logoutUser);
       appNav.classList.remove("hidden");
+      adminTab.classList.toggle("hidden", !isAdmin);
+      auditTab.classList.toggle("hidden", !isAdmin);
+      if (!isAdmin && ["admin", "audit"].includes(currentTab)) currentTab = "stock";
       startSnapshots();
       render();
     });
@@ -166,13 +178,26 @@
         },
         err => showNotice("Cannot load material requests: " + formatFirebaseError(err))
       );
+      if (isAdmin) {
+        unsubscribeAudits = onSnapshot(
+          query(collection(db, AUDIT_PATH)),
+          snap => {
+            adminAudits = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (currentTab === "audit") renderAudit();
+          },
+          err => showNotice("Cannot load admin audit records: " + formatFirebaseError(err))
+        );
+      }
     }
 
     function stopSnapshots() {
       unsubscribeInventory?.();
       unsubscribeRequests?.();
+      unsubscribeAudits?.();
       unsubscribeInventory = null;
       unsubscribeRequests = null;
+      unsubscribeAudits = null;
+      adminAudits = [];
     }
 
     function renderUserLogin() {
@@ -220,6 +245,7 @@
       if (currentTab === "request") renderRequestForm();
       if (currentTab === "logs") renderLogs();
       if (currentTab === "admin") renderAdmin();
+      if (currentTab === "audit") renderAudit();
     }
 
     function renderStockForm() {
@@ -378,6 +404,36 @@
         return;
       }
       sorted.forEach(item => list.appendChild(requestCard(item, true)));
+    }
+
+    function renderAudit() {
+      if (!isAdmin) {
+        setTab("stock");
+        return;
+      }
+      const rows = [...adminAudits]
+        .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))
+        .slice(0, 100);
+      view.innerHTML = `
+        <div class="mb-4">
+          <h2 class="text-xl font-bold text-slate-800">Admin Audit Trail</h2>
+          <p class="text-sm text-slate-500">Immutable record of Materials Request and inventory admin actions.</p>
+        </div>
+        <div id="audit-list" class="space-y-2"></div>`;
+      const list = document.getElementById("audit-list");
+      if (!rows.length) {
+        list.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">No admin actions recorded yet.</div>`;
+        return;
+      }
+      list.innerHTML = rows.map(audit => `
+        <article class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <div class="flex flex-col gap-1 sm:flex-row sm:justify-between">
+            <strong>${escapeHtml(audit.recordName || audit.recordId || "Record")}</strong>
+            <span class="text-slate-500">${formatTime(audit.timestamp)}</span>
+          </div>
+          <p class="mt-1 text-slate-700">${escapeHtml(audit.summary || audit.action || "Admin action")}</p>
+          <p class="mt-1 text-xs font-semibold text-slate-500">${escapeHtml(audit.actorName || "Admin")} · ${escapeHtml(audit.actorEmail || "")}</p>
+        </article>`).join("");
     }
 
     function stockCard(log) {
@@ -609,6 +665,7 @@
     }
 
     function statusAudit(req) {
+      if (req.lastAdminAction) return `<p class="mt-2 text-xs font-semibold text-slate-500">Last action: ${escapeHtml(req.lastAdminAction)} · ${escapeHtml(req.lastAdminActorName || adminDisplayName(req.lastAdminActorEmail || ""))}${req.lastAdminActionAt ? ` · ${formatTime(req.lastAdminActionAt)}` : ""}</p>`;
       return req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(adminDisplayName(req.statusUpdatedBy))}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
     }
 
@@ -896,12 +953,58 @@
       const label = type === "log" ? "stock record" : "material request";
       const ok = window.confirm(`Delete ${label}: ${recordName}?\n\nThis action cannot be undone.`);
       if (!ok) return;
-      await deleteDoc(doc(db, `${DATA_ROOT}/${collectionName}`, id)).catch(err => showNotice("Deletion failed: " + formatFirebaseError(err)));
+      try {
+        const email = (auth.currentUser?.email || "").toLowerCase();
+        const batch = writeBatch(db);
+        const summary = `${type === "log" ? "Stock record" : "Material request"} deleted`;
+        batch.set(doc(collection(db, AUDIT_PATH)), {
+          recordId: id,
+          recordName,
+          recordType: type === "log" ? "inventory_log" : "material_request",
+          action: "delete",
+          summary,
+          previousStatus: type === "request" ? normalizeStatus(record?.status) : "",
+          actorName: adminDisplayName(email),
+          actorEmail: email,
+          timestamp: serverTimestamp()
+        });
+        batch.delete(doc(db, `${DATA_ROOT}/${collectionName}`, id));
+        await batch.commit();
+      } catch (err) {
+        showNotice("Deletion failed: " + formatFirebaseError(err));
+      }
     }
 
     async function updateRequest(id, data) {
       if (!isAdmin) return;
-      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), data).catch(err => showNotice("Update failed: " + formatFirebaseError(err)));
+      const record = materialRequests.find(item => item.id === id);
+      if (!record) return;
+      try {
+        const email = (auth.currentUser?.email || "").toLowerCase();
+        const nextEta = data.arrivalDate || "";
+        const summary = `ETA changed: ${record.arrivalDate || "Not set"} → ${nextEta || "Not set"}`;
+        const batch = writeBatch(db);
+        batch.update(doc(db, `${DATA_ROOT}/material_requests`, id), {
+          ...data,
+          lastAdminAction: summary,
+          lastAdminActorEmail: email,
+          lastAdminActorName: adminDisplayName(email),
+          lastAdminActionAt: serverTimestamp()
+        });
+        batch.set(doc(collection(db, AUDIT_PATH)), {
+          recordId: id,
+          recordName: record.materialName || getRequestItems(record)[0]?.materialName || "Material request",
+          recordType: "material_request",
+          action: "eta_update",
+          summary,
+          actorName: adminDisplayName(email),
+          actorEmail: email,
+          timestamp: serverTimestamp()
+        });
+        await batch.commit();
+      } catch (err) {
+        showNotice("Update failed: " + formatFirebaseError(err));
+      }
     }
 
     async function saveRequestAdminUpdate(e) {
@@ -913,17 +1016,43 @@
       const email = auth.currentUser?.email || "Unknown admin";
       const status = panel.querySelector(".request-status")?.value || "new";
       const adminRemark = panel.querySelector(".request-admin-remark")?.value.trim() || "";
+      const record = materialRequests.find(item => item.id === id);
+      if (!record) return;
 
       setLoading(button, true);
-      await updateDoc(doc(db, `${DATA_ROOT}/material_requests`, id), {
-        status,
-        adminRemark,
-        statusUpdatedBy: email,
-        statusUpdatedAt: serverTimestamp()
-      })
-        .then(() => showNotice("Request update saved."))
-        .catch(err => showNotice("Update failed: " + formatFirebaseError(err)))
-        .finally(() => setLoading(button, false));
+      try {
+        const previousStatus = normalizeStatus(record.status);
+        const summary = previousStatus === status ? "Admin remark updated" : `Status changed: ${getStatusLabel(previousStatus)} → ${getStatusLabel(status)}`;
+        const batch = writeBatch(db);
+        batch.update(doc(db, `${DATA_ROOT}/material_requests`, id), {
+          status,
+          adminRemark,
+          statusUpdatedBy: email,
+          statusUpdatedAt: serverTimestamp(),
+          lastAdminAction: summary,
+          lastAdminActorEmail: email,
+          lastAdminActorName: adminDisplayName(email),
+          lastAdminActionAt: serverTimestamp()
+        });
+        batch.set(doc(collection(db, AUDIT_PATH)), {
+          recordId: id,
+          recordName: record.materialName || getRequestItems(record)[0]?.materialName || "Material request",
+          recordType: "material_request",
+          action: "update",
+          summary,
+          previousStatus,
+          newStatus: status,
+          actorName: adminDisplayName(email),
+          actorEmail: email,
+          timestamp: serverTimestamp()
+        });
+        await batch.commit();
+        showNotice("Request update saved.");
+      } catch (err) {
+        showNotice("Update failed: " + formatFirebaseError(err));
+      } finally {
+        setLoading(button, false);
+      }
     }
 
     function bindPhotos(type, pickerId, cameraId, previewId) {
