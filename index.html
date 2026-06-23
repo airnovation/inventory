@@ -372,7 +372,7 @@
         </div>
         <div id="log-list" class="space-y-3"></div>`;
       document.getElementById("print-log").addEventListener("click", printLogs);
-      document.getElementById("export-csv").addEventListener("click", () => exportLogs("csv"));
+      document.getElementById("export-csv").addEventListener("click", exportLogs);
       const list = document.getElementById("log-list");
       if (!items.length) {
         list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No records found</div>`;
@@ -675,74 +675,71 @@
       return req.statusUpdatedBy ? `<p class="mt-2 text-xs font-semibold text-slate-500">Last handled by: ${escapeHtml(adminDisplayName(req.statusUpdatedBy))}${req.statusUpdatedAt ? ` | ${formatTime(req.statusUpdatedAt)}` : ""}</p>` : "";
     }
 
-    function buildExportRows() {
-      return currentLogItems.flatMap(item => {
-        const base = {
-          type: item.kind === "request" ? "Material Request" : (item.type === "outbound" ? "Stock Out" : "Stock In"),
-          status: item.kind === "request" ? getStatusLabel(item.status) : "",
-          time: formatTime(item.timestamp),
-          pic: item.personInCharge || item.departmentHead || "",
-          usedFor: item.purpose || "",
-          location: item.location || "",
-          dateNeeded: item.dateNeeded || "",
-          deliveryAddress: item.deliveryAddress || "",
-          handledBy: isAdmin ? adminDisplayName(item.statusUpdatedBy || "") : ""
-        };
+    function buildExportGroups() {
+      const stockRows = [];
+      const requestRows = [];
+      currentLogItems.forEach(item => {
         if (item.kind === "request") {
-          return getRequestItems(item).map(requestItem => ({
-            ...base,
-            materialName: requestItem.materialName || "",
-            quantity: requestItem.quantity || 0,
-            unit: "",
-            remark: requestItem.remark || "",
-            adminRemark: item.adminRemark || ""
-          }));
+          getRequestItems(item).forEach(requestItem => {
+            requestRows.push({
+              time: formatTime(item.timestamp),
+              pic: item.personInCharge || "",
+              usedFor: item.purpose || "",
+              dateNeeded: item.dateNeeded || "",
+              deliveryAddress: item.deliveryAddress || "",
+              materialName: requestItem.materialName || "",
+              quantity: requestItem.quantity || 0,
+              remark: requestItem.remark || "",
+              status: getStatusLabel(item.status),
+              adminRemark: item.adminRemark || "",
+              handledBy: adminDisplayName(item.statusUpdatedBy || "")
+            });
+          });
+          return;
         }
-        return getStockItems(item).map(stockItem => ({
-          ...base,
-          materialName: stockItem.itemName || "",
-          quantity: stockItem.quantity || 0,
-          unit: stockItem.unit || "",
-          remark: stockItem.remark || ""
-        }));
+        getStockItems(item).forEach(stockItem => {
+          stockRows.push({
+            time: formatTime(item.timestamp),
+            type: item.type === "outbound" ? "Stock Out" : "Stock In",
+            deptPic: item.departmentHead || "",
+            location: item.location || "",
+            itemName: stockItem.itemName || "",
+            quantity: stockItem.quantity || 0,
+            unit: stockItem.unit || "",
+            remark: stockItem.remark || ""
+          });
+        });
       });
+      return { stockRows, requestRows };
     }
 
-    function exportLogs(format) {
-      const rows = buildExportRows();
-      if (!rows.length) {
+    function exportLogs() {
+      const { stockRows, requestRows } = buildExportGroups();
+      if (!stockRows.length && !requestRows.length) {
         showNotice("No records to export.");
         return;
       }
       const date = new Date().toISOString().slice(0, 10);
-      const headers = ["type", "status", "time", "pic", "usedFor", "materialName", "quantity", "unit", "remark", "adminRemark", "location", "dateNeeded", "deliveryAddress", "handledBy"];
-      const csv = [
-        headers.join(","),
-        ...rows.map(row => headers.map(header => csvCell(row[header])).join(","))
-      ].join("\n");
-      downloadFile(`airnovation-log-${date}.csv`, csv, "text/csv;charset=utf-8");
+      if (stockRows.length) downloadCsv(`airnovation-stock-records-${date}.csv`, getStockExportColumns(), stockRows);
+      if (requestRows.length) downloadCsv(`airnovation-material-requests-${date}.csv`, getRequestExportColumns(), requestRows);
     }
 
     function printLogs() {
-      const rows = buildExportRows();
-      if (!rows.length) {
+      const { stockRows, requestRows } = buildExportGroups();
+      if (!stockRows.length && !requestRows.length) {
         showNotice("No records to print.");
         return;
       }
-      const bodyRows = rows.map(row => `
-        <tr>
-          <td>${escapeHtml(row.type)}</td>
-          <td>${escapeHtml(row.status)}</td>
-          <td>${escapeHtml(row.time)}</td>
-          <td>${escapeHtml(row.pic)}</td>
-          <td>${escapeHtml(row.usedFor)}</td>
-          <td>${escapeHtml(row.materialName)}</td>
-          <td>${escapeHtml(row.quantity)}</td>
-          <td>${escapeHtml(row.unit)}</td>
-          <td>${escapeHtml(row.remark)}</td>
-          <td>${escapeHtml(row.adminRemark)}</td>
-          <td>${escapeHtml(row.dateNeeded)}</td>
-        </tr>`).join("");
+      const stockTable = stockRows.length ? renderPrintSection(
+        "Stock In / Stock Out Records",
+        stockRows,
+        getStockExportColumns()
+      ) : "";
+      const requestTable = requestRows.length ? renderPrintSection(
+        "Material Request Records",
+        requestRows,
+        getRequestExportColumns()
+      ) : "";
       const printWindow = window.open("", "_blank");
       if (!printWindow) {
         showNotice("Please allow pop-ups to print.");
@@ -756,24 +753,67 @@
             <style>
               body { font-family: Arial, sans-serif; color: #111827; }
               h1 { font-size: 20px; margin-bottom: 4px; }
+              h2 { font-size: 16px; margin: 22px 0 8px; }
               p { margin: 0 0 16px; color: #475569; }
               table { width: 100%; border-collapse: collapse; font-size: 12px; }
               th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }
               th { background: #f1f5f9; }
+              section { break-inside: avoid; margin-bottom: 18px; }
             </style>
           </head>
           <body>
             <h1>Airnovation Activity Log</h1>
             <p>Printed: ${escapeHtml(new Date().toLocaleString())}</p>
-            <table>
-              <thead><tr><th>Type</th><th>Status</th><th>Time</th><th>PIC</th><th>Used For</th><th>Material</th><th>Qty</th><th>Unit</th><th>Remark</th><th>Admin Remark</th><th>Date Needed</th></tr></thead>
-              <tbody>${bodyRows}</tbody>
-            </table>
+            ${stockTable}
+            ${requestTable}
           </body>
         </html>`);
       printWindow.document.close();
       printWindow.focus();
       printWindow.print();
+    }
+
+    function getStockExportColumns() {
+      return [
+        ["time", "Time"],
+        ["type", "Type"],
+        ["deptPic", "Dept./PIC"],
+        ["location", "Location"],
+        ["itemName", "Item Name"],
+        ["quantity", "Quantity"],
+        ["unit", "Unit"],
+        ["remark", "Remark"]
+      ];
+    }
+
+    function getRequestExportColumns() {
+      return [
+        ["time", "Time"],
+        ["pic", "PIC Name"],
+        ["usedFor", "Used For"],
+        ["dateNeeded", "Date Needed"],
+        ["deliveryAddress", "Delivery Address"],
+        ["materialName", "Material Name"],
+        ["quantity", "Quantity"],
+        ["remark", "Remark"],
+        ["status", "Status"],
+        ["adminRemark", "Admin Remark"],
+        ["handledBy", "Last Handled By"]
+      ];
+    }
+
+    function renderPrintSection(title, rows, columns) {
+      const header = columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("");
+      const body = rows.map(row => `<tr>${columns.map(([key]) => `<td>${escapeHtml(row[key])}</td>`).join("")}</tr>`).join("");
+      return `<section><h2>${escapeHtml(title)}</h2><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></section>`;
+    }
+
+    function downloadCsv(filename, columns, rows) {
+      const csv = [
+        columns.map(([, label]) => csvCell(label)).join(","),
+        ...rows.map(row => columns.map(([key]) => csvCell(row[key])).join(","))
+      ].join("\n");
+      downloadFile(filename, csv, "text/csv;charset=utf-8");
     }
 
     function csvCell(value) {
