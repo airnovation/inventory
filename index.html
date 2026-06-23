@@ -51,7 +51,8 @@
       <nav id="app-nav" class="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1" aria-label="Tabs">
         <button class="tab active" data-tab="stock">Stock In/Out</button>
         <button class="tab" data-tab="request">Material Request</button>
-        <button class="tab" data-tab="logs">Log</button>
+        <button class="tab" data-tab="stock-log">Stock Log</button>
+        <button class="tab" data-tab="request-log">Request Log</button>
         <button class="tab" data-tab="admin">Admin</button>
         <button class="tab" data-tab="audit">Audit Trail</button>
       </nav>
@@ -108,6 +109,7 @@
     let materialRequests = [];
     let adminAudits = [];
     let currentLogItems = [];
+    let currentLogTitle = "Activity Log";
     let unsubscribeInventory = null;
     let unsubscribeRequests = null;
     let unsubscribeAudits = null;
@@ -247,7 +249,9 @@
     function render() {
       if (currentTab === "stock") renderStockForm();
       if (currentTab === "request") renderRequestForm();
-      if (currentTab === "logs") renderLogs();
+      if (currentTab === "logs") setTab("stock-log");
+      if (currentTab === "stock-log") renderStockLogs();
+      if (currentTab === "request-log") renderRequestLogs();
       if (currentTab === "admin") renderAdmin();
       if (currentTab === "audit") renderAudit();
     }
@@ -358,13 +362,24 @@
       document.getElementById("request-form").addEventListener("submit", submitRequest);
     }
 
-    function renderLogs() {
-      const items = [...inventoryLogs.map(x => ({...x, kind: "stock"})), ...materialRequests.map(x => ({...x, kind: "request"}))]
+    function renderStockLogs() {
+      const items = inventoryLogs.map(x => ({...x, kind: "stock"}))
         .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      renderLogPage("Stock Log", items, item => stockCard(item));
+    }
+
+    function renderRequestLogs() {
+      const items = materialRequests.map(x => ({...x, kind: "request"}))
+        .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      renderLogPage("Request Log", items, item => requestCard(item, false));
+    }
+
+    function renderLogPage(title, items, cardRenderer) {
       currentLogItems = items;
+      currentLogTitle = title;
       view.innerHTML = `
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 class="text-xl font-bold text-slate-800">Activity Log</h2>
+          <h2 class="text-xl font-bold text-slate-800">${escapeHtml(title)}</h2>
           <div class="flex flex-wrap gap-2">
             <button id="print-log" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">Print</button>
             <button id="export-csv" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">Export CSV</button>
@@ -378,7 +393,7 @@
         list.innerHTML = `<div class="py-16 text-center font-semibold text-slate-400">No records found</div>`;
         return;
       }
-      items.forEach(item => list.appendChild(item.kind === "request" ? requestCard(item, false) : stockCard(item)));
+      items.forEach(item => list.appendChild(cardRenderer(item)));
     }
 
     function renderAdmin() {
@@ -749,7 +764,7 @@
         <!doctype html>
         <html>
           <head>
-            <title>Airnovation Activity Log</title>
+            <title>Airnovation ${escapeHtml(currentLogTitle)}</title>
             <style>
               body { font-family: Arial, sans-serif; color: #111827; }
               h1 { font-size: 20px; margin-bottom: 4px; }
@@ -762,7 +777,7 @@
             </style>
           </head>
           <body>
-            <h1>Airnovation Activity Log</h1>
+            <h1>Airnovation ${escapeHtml(currentLogTitle)}</h1>
             <p>Printed: ${escapeHtml(new Date().toLocaleString())}</p>
             ${stockTable}
             ${requestTable}
