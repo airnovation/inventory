@@ -87,6 +87,7 @@
 
     const DATA_ROOT = "artifacts/inventory-tracker-app-dev/public/data";
     const AUDIT_PATH = `${DATA_ROOT}/inventory_admin_audit`;
+    const OWNER_EMAIL = "cpchong@airnovation.com.sg";
     const ADMIN_NAMES = {
       "cpchong@airnovation.com.sg": "Chong",
       "aepl01@airnovation.com.sg": "Hui Xin",
@@ -101,6 +102,7 @@
 
     let userId = null;
     let isAdmin = false;
+    let isOwner = false;
     let currentTab = "stock";
     let inventoryLogs = [];
     let materialRequests = [];
@@ -128,6 +130,7 @@
       if (!user) {
         userId = null;
         isAdmin = false;
+        isOwner = false;
         adminAudits = [];
         authState.textContent = "";
         appNav.classList.add("hidden");
@@ -144,6 +147,7 @@
       }
       userId = user.uid;
       isAdmin = Object.hasOwn(ADMIN_NAMES, email);
+      isOwner = email === OWNER_EMAIL;
       authState.innerHTML = `<span>${isAdmin ? `Admin: ${escapeHtml(adminDisplayName(email))}` : `Staff: ${escapeHtml(email)}`}</span>
         <button id="app-logout" class="ml-3 font-bold text-blue-600" type="button">Logout</button>`;
       document.getElementById("app-logout").addEventListener("click", logoutUser);
@@ -415,11 +419,13 @@
         .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))
         .slice(0, 100);
       view.innerHTML = `
-        <div class="mb-4">
-          <h2 class="text-xl font-bold text-slate-800">Admin Audit Trail</h2>
-          <p class="text-sm text-slate-500">Immutable record of Materials Request and inventory admin actions.</p>
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 class="text-xl font-bold text-slate-800">Admin Audit Trail</h2>
+          <p class="text-sm text-slate-500">Record of Materials Request and inventory admin actions.</p></div>
+          ${isOwner ? `<button id="clear-audit" class="btn btn-red" type="button">Clear Audit Trail</button>` : ""}
         </div>
         <div id="audit-list" class="space-y-2"></div>`;
+      document.getElementById("clear-audit")?.addEventListener("click", clearAuditTrail);
       const list = document.getElementById("audit-list");
       if (!rows.length) {
         list.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">No admin actions recorded yet.</div>`;
@@ -462,7 +468,7 @@
           </div>
         </div>
         ${renderRecordImages(log, "Stock")}
-        ${isAdmin ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
+        ${isOwner ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
       el.querySelector("h3").textContent = stockItems.length === 1 ? stockItems[0].itemName : `${stockItems.length} stock items`;
       el.querySelectorAll("p")[0].textContent = `By: ${log.departmentHead || "N/A"}`;
       el.querySelectorAll("p")[1].textContent = `Location: ${log.location || "N/A"}`;
@@ -524,7 +530,7 @@
         <select class="request-status field w-auto min-w-[160px]" data-id="${req.id}" aria-label="Request status">${options}</select>
         <input class="request-admin-remark field" data-id="${req.id}" value="${escapeAttr(req.adminRemark || "")}" placeholder="Admin remark">
         <button class="save-request-admin btn bg-slate-200 px-3 py-2 text-slate-700" data-id="${req.id}" type="button">Save</button>
-        <button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button>
+        ${isOwner ? `<button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button>` : ""}
       </div>`;
     }
 
@@ -941,7 +947,10 @@
     }
 
     async function deleteItem(e) {
-      if (!isAdmin) return;
+      if (!isOwner) {
+        showNotice("Only the owner account can delete records.");
+        return;
+      }
       const { id, type } = e.currentTarget.dataset;
       const collectionName = type === "log" ? "inventory_logs" : "material_requests";
       const record = type === "log"
@@ -972,6 +981,28 @@
         await batch.commit();
       } catch (err) {
         showNotice("Deletion failed: " + formatFirebaseError(err));
+      }
+    }
+
+    async function clearAuditTrail() {
+      if (!isOwner) {
+        showNotice("Only the owner account can clear audit history.");
+        return;
+      }
+      if (!adminAudits.length) {
+        showNotice("There are no audit records to clear.");
+        return;
+      }
+      if (!window.confirm(`Clear all ${adminAudits.length} Materials Request audit records?\n\nThis action cannot be undone.`)) return;
+      try {
+        for (let index = 0; index < adminAudits.length; index += 450) {
+          const batch = writeBatch(db);
+          adminAudits.slice(index, index + 450).forEach(audit => batch.delete(doc(db, AUDIT_PATH, audit.id)));
+          await batch.commit();
+        }
+        showNotice("Materials Request audit history cleared.");
+      } catch (err) {
+        showNotice("Audit clear failed: " + formatFirebaseError(err));
       }
     }
 
