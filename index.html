@@ -599,7 +599,7 @@
       row.innerHTML = `
         <td class="pb-3 pr-3"><input class="stock-item-name field" required placeholder="Cable Tray"></td>
         <td class="pb-3 pr-3"><input class="stock-quantity field" required type="number" min="1" placeholder="10"></td>
-        <td class="pb-3 pr-3"><input class="stock-unit field" placeholder="pcs"></td>
+        <td class="pb-3 pr-3"><input class="stock-unit field" required placeholder="pcs"></td>
         <td class="pb-3 pr-3"><input class="stock-remark field" placeholder="Project A"></td>
         <td class="pb-3"><button class="remove-stock-item btn btn-red px-3 py-2" type="button">Remove</button></td>`;
       row.querySelector(".remove-stock-item").addEventListener("click", () => {
@@ -623,7 +623,7 @@
         quantity: Number(row.querySelector(".stock-quantity").value) || 0,
         unit: row.querySelector(".stock-unit").value.trim(),
         remark: row.querySelector(".stock-remark").value.trim()
-      })).filter(item => item.itemName && item.quantity > 0);
+      })).filter(item => item.itemName && item.quantity > 0 && item.unit);
     }
 
     function getStockItems(log) {
@@ -982,6 +982,12 @@
       try {
         const imageDataURLs = getSelectedPhotos("stock");
         validatePhotoPayload(imageDataURLs);
+        const missingUnit = [...document.querySelectorAll(".stock-item-row")].find(row => !row.querySelector(".stock-unit").value.trim());
+        if (missingUnit) {
+          missingUnit.querySelector(".stock-unit").focus();
+          showNotice("Please fill in Unit for every stock item.");
+          return;
+        }
         const stockItems = collectStockItems();
         if (!stockItems.length) {
           showNotice("Please add at least one stock item.");
