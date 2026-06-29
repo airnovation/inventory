@@ -110,6 +110,7 @@
     let adminAudits = [];
     let currentLogItems = [];
     let currentLogTitle = "Activity Log";
+    let adminMode = "requests";
     let unsubscribeInventory = null;
     let unsubscribeRequests = null;
     let unsubscribeAudits = null;
@@ -239,6 +240,7 @@
     }
 
     function setTab(tab) {
+      if (tab === "admin" && currentTab !== "admin") adminMode = "requests";
       currentTab = tab;
       document.querySelectorAll(".tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
       render();
@@ -414,28 +416,29 @@
           <h2 class="text-xl font-bold text-slate-800">Admin Management</h2>
           <button id="logout" class="btn bg-slate-200 text-slate-700">Logout</button>
         </div>
-        <section class="mb-6">
-          <h3 class="mb-3 text-lg font-bold text-slate-700">Stock Records Management</h3>
-          <div id="stock-admin-list" class="space-y-3"></div>
-        </section>
+        <div class="mb-4 flex rounded-lg bg-slate-100 p-1">
+          <button class="admin-mode tab ${adminMode === "requests" ? "active" : ""}" data-admin-mode="requests" type="button">Material Requests</button>
+          <button class="admin-mode tab ${adminMode === "stock" ? "active" : ""}" data-admin-mode="stock" type="button">Stock Records</button>
+        </div>
         <section>
-          <h3 class="mb-3 text-lg font-bold text-slate-700">Material Request Management</h3>
-          <div id="request-admin-list" class="space-y-3"></div>
+          <h3 class="mb-3 text-lg font-bold text-slate-700">${adminMode === "stock" ? "Stock Records Management" : "Material Request Management"}</h3>
+          <div id="admin-list" class="space-y-3"></div>
         </section>`;
       document.getElementById("logout").addEventListener("click", adminLogout);
-      const stockList = document.getElementById("stock-admin-list");
-      const requestList = document.getElementById("request-admin-list");
+      document.querySelectorAll(".admin-mode").forEach(button => {
+        button.addEventListener("click", () => {
+          adminMode = button.dataset.adminMode;
+          renderAdmin();
+        });
+      });
+      const list = document.getElementById("admin-list");
       const stockSorted = [...inventoryLogs].sort((a, b) => getStockStatusRank(a.stockStatus || a.status) - getStockStatusRank(b.stockStatus || b.status));
       const requestSorted = [...materialRequests].sort((a, b) => getStatusRank(a.status) - getStatusRank(b.status));
-      if (!stockSorted.length) {
-        stockList.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">No stock records found.</div>`;
+      const sorted = adminMode === "stock" ? stockSorted : requestSorted;
+      if (!sorted.length) {
+        list.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">${adminMode === "stock" ? "No stock records found." : "No pending requests."}</div>`;
       } else {
-        stockSorted.forEach(item => stockList.appendChild(stockCard(item, true)));
-      }
-      if (!requestSorted.length) {
-        requestList.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">No pending requests.</div>`;
-      } else {
-        requestSorted.forEach(item => requestList.appendChild(requestCard(item, true)));
+        sorted.forEach(item => list.appendChild(adminMode === "stock" ? stockCard(item, true) : requestCard(item, true)));
       }
     }
 
@@ -501,6 +504,7 @@
         </div>
         ${renderRecordImages(log, "Stock")}
         ${adminControls ? stockAdminButtons(log) : ""}
+        ${adminControls && isOwner ? stockEditPanel(log) : ""}
         ${isOwner ? `<div class="mt-3 border-t border-slate-100 pt-3 text-right"><button class="delete btn btn-red px-3 py-2" data-type="log" data-id="${log.id}">Delete</button></div>` : ""}`;
       el.querySelector("h3").textContent = stockItems.length === 1 ? stockItems[0].itemName : `${stockItems.length} stock items`;
       el.querySelectorAll("p")[0].textContent = `By: ${log.departmentHead || "N/A"}`;
@@ -533,7 +537,8 @@
           ${req.arrivalDate ? `<p class="mt-2 font-bold text-emerald-600">ETA: ${req.arrivalDate}</p>` : ""}
         </div>
         ${renderRecordImages(req, "Request")}
-        ${adminControls ? adminButtons(req) : ""}`;
+        ${adminControls ? adminButtons(req) : ""}
+        ${adminControls && isOwner ? requestEditPanel(req) : ""}`;
       el.querySelector("h3").textContent = requestItems.length === 1 ? requestItems[0].materialName : `${requestItems.length} requested items`;
       el.querySelectorAll("p")[0].textContent = `By: ${req.personInCharge || "N/A"} | Items: ${requestItems.length}`;
       el.querySelectorAll("p")[1].textContent = `For: ${req.purpose || "N/A"}`;
@@ -563,6 +568,7 @@
         <select class="request-status field w-auto min-w-[160px]" data-id="${req.id}" aria-label="Request status">${options}</select>
         <input class="request-admin-remark field" data-id="${req.id}" value="${escapeAttr(req.adminRemark || "")}" placeholder="Admin remark">
         <button class="save-request-admin btn bg-slate-200 px-3 py-2 text-slate-700" data-id="${req.id}" type="button">Save</button>
+        ${isOwner ? `<button class="toggle-edit btn bg-slate-200 px-3 py-2 text-slate-700" data-edit-target="request-edit-${req.id}" type="button">Edit</button>` : ""}
         ${isOwner ? `<button class="delete btn btn-red px-3 py-2" data-type="request" data-id="${req.id}">Delete</button>` : ""}
       </div>`;
     }
@@ -576,7 +582,83 @@
         <select class="stock-status field w-auto min-w-[150px]" data-id="${log.id}" aria-label="Stock status">${options}</select>
         <input class="stock-admin-remark field" data-id="${log.id}" value="${escapeAttr(log.adminRemark || "")}" placeholder="Admin remark">
         <button class="save-stock-admin btn bg-slate-200 px-3 py-2 text-slate-700" data-id="${log.id}" type="button">Save</button>
+        ${isOwner ? `<button class="toggle-edit btn bg-slate-200 px-3 py-2 text-slate-700" data-edit-target="stock-edit-${log.id}" type="button">Edit</button>` : ""}
       </div>`;
+    }
+
+    function stockEditPanel(log) {
+      const stockItems = getStockItems(log);
+      const rows = stockItems.map(item => stockEditRow(item)).join("");
+      const outboundSelected = log.type === "outbound" ? " selected" : "";
+      const inboundSelected = log.type === "inbound" ? " selected" : "";
+      return `<div id="stock-edit-${log.id}" class="edit-panel mt-3 hidden rounded-lg border border-blue-100 bg-blue-50 p-3">
+        <h4 class="mb-3 font-bold text-slate-700">Edit Stock Record</h4>
+        <div class="grid gap-3 md:grid-cols-3">
+          <label class="text-sm font-semibold text-slate-600">Type
+            <select class="edit-stock-type field mt-1">
+              <option value="outbound"${outboundSelected}>Stock Out</option>
+              <option value="inbound"${inboundSelected}>Stock In</option>
+            </select>
+          </label>
+          <label class="text-sm font-semibold text-slate-600">Dept./PIC <input class="edit-stock-pic field mt-1" value="${escapeAttr(log.departmentHead || "")}" required></label>
+          <label class="text-sm font-semibold text-slate-600">Location <input class="edit-stock-location field mt-1" value="${escapeAttr(log.location || "")}" required></label>
+        </div>
+        <div class="mt-3 flex items-center justify-between gap-3">
+          <h5 class="font-bold text-slate-700">Items</h5>
+          <button class="add-edit-stock-item btn bg-slate-200 px-3 py-2 text-slate-700" type="button">+ Add Item</button>
+        </div>
+        <div class="mt-2 overflow-x-auto">
+          <table class="w-full min-w-[720px] text-left text-sm">
+            <thead class="text-slate-500"><tr><th class="pb-2 pr-3">Item Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Unit</th><th class="pb-2 pr-3">Remark</th><th class="pb-2">Action</th></tr></thead>
+            <tbody class="edit-stock-items">${rows}</tbody>
+          </table>
+        </div>
+        <button class="save-stock-edit btn btn-primary mt-3" data-id="${log.id}" type="button">Save Edit</button>
+      </div>`;
+    }
+
+    function requestEditPanel(req) {
+      const requestItems = getRequestItems(req);
+      const rows = requestItems.map(item => requestEditRow(item)).join("");
+      return `<div id="request-edit-${req.id}" class="edit-panel mt-3 hidden rounded-lg border border-blue-100 bg-blue-50 p-3">
+        <h4 class="mb-3 font-bold text-slate-700">Edit Material Request</h4>
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="text-sm font-semibold text-slate-600">PIC Name <input class="edit-request-pic field mt-1" value="${escapeAttr(req.personInCharge || "")}" required></label>
+          <label class="text-sm font-semibold text-slate-600">Used For <input class="edit-request-purpose field mt-1" value="${escapeAttr(req.purpose || "")}" required></label>
+          <label class="text-sm font-semibold text-slate-600">Date Needed <input class="edit-request-date field mt-1" type="date" value="${escapeAttr(req.dateNeeded || "")}" required></label>
+          <label class="text-sm font-semibold text-slate-600">Delivery Address <input class="edit-request-address field mt-1" value="${escapeAttr(req.deliveryAddress || "")}" required></label>
+        </div>
+        <div class="mt-3 flex items-center justify-between gap-3">
+          <h5 class="font-bold text-slate-700">Items</h5>
+          <button class="add-edit-request-item btn bg-slate-200 px-3 py-2 text-slate-700" type="button">+ Add Item</button>
+        </div>
+        <div class="mt-2 overflow-x-auto">
+          <table class="w-full min-w-[620px] text-left text-sm">
+            <thead class="text-slate-500"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Remark</th><th class="pb-2">Action</th></tr></thead>
+            <tbody class="edit-request-items">${rows}</tbody>
+          </table>
+        </div>
+        <button class="save-request-edit btn btn-primary mt-3" data-id="${req.id}" type="button">Save Edit</button>
+      </div>`;
+    }
+
+    function stockEditRow(item = {}) {
+      return `<tr class="edit-stock-row">
+        <td class="pb-3 pr-3"><input class="edit-stock-item-name field" required value="${escapeAttr(item.itemName || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-stock-quantity field" required type="number" min="1" value="${escapeAttr(item.quantity || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-stock-unit field" required value="${escapeAttr(item.unit || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-stock-remark field" value="${escapeAttr(item.remark || "")}"></td>
+        <td class="pb-3"><button class="remove-edit-row btn btn-red px-3 py-2" type="button">Remove</button></td>
+      </tr>`;
+    }
+
+    function requestEditRow(item = {}) {
+      return `<tr class="edit-request-row">
+        <td class="pb-3 pr-3"><input class="edit-request-material field" required value="${escapeAttr(item.materialName || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-request-quantity field" required type="number" min="1" value="${escapeAttr(item.quantity || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-request-remark field" value="${escapeAttr(item.remark || "")}"></td>
+        <td class="pb-3"><button class="remove-edit-row btn btn-red px-3 py-2" type="button">Remove</button></td>
+      </tr>`;
     }
 
     function bindCardActions(el) {
@@ -588,7 +670,42 @@
       el.querySelectorAll(".save-stock-admin").forEach(button => {
         button.addEventListener("click", saveStockAdminUpdate);
       });
+      el.querySelectorAll(".toggle-edit").forEach(button => {
+        button.addEventListener("click", () => document.getElementById(button.dataset.editTarget)?.classList.toggle("hidden"));
+      });
+      el.querySelectorAll(".add-edit-stock-item").forEach(button => {
+        button.addEventListener("click", () => {
+          button.closest(".edit-panel").querySelector(".edit-stock-items").insertAdjacentHTML("beforeend", stockEditRow());
+          bindEditRowRemovers(button.closest(".edit-panel"));
+        });
+      });
+      el.querySelectorAll(".add-edit-request-item").forEach(button => {
+        button.addEventListener("click", () => {
+          button.closest(".edit-panel").querySelector(".edit-request-items").insertAdjacentHTML("beforeend", requestEditRow());
+          bindEditRowRemovers(button.closest(".edit-panel"));
+        });
+      });
+      el.querySelectorAll(".save-stock-edit").forEach(button => {
+        button.addEventListener("click", saveStockEdit);
+      });
+      el.querySelectorAll(".save-request-edit").forEach(button => {
+        button.addEventListener("click", saveRequestEdit);
+      });
+      bindEditRowRemovers(el);
       el.querySelector(".eta")?.addEventListener("change", e => updateRequest(e.currentTarget.dataset.id, { arrivalDate: e.currentTarget.value }));
+    }
+
+    function bindEditRowRemovers(root) {
+      root.querySelectorAll(".remove-edit-row").forEach(button => {
+        button.onclick = () => {
+          const tbody = button.closest("tbody");
+          if (tbody.querySelectorAll("tr").length <= 1) {
+            showNotice("At least one item is required.");
+            return;
+          }
+          button.closest("tr").remove();
+        };
+      });
     }
 
     function addStockItemRow() {
@@ -1168,6 +1285,136 @@
         await batch.commit();
       } catch (err) {
         showNotice("Update failed: " + formatFirebaseError(err));
+      }
+    }
+
+    function collectEditStockItems(panel) {
+      return [...panel.querySelectorAll(".edit-stock-row")].map(row => ({
+        itemName: row.querySelector(".edit-stock-item-name").value.trim(),
+        quantity: Number(row.querySelector(".edit-stock-quantity").value) || 0,
+        unit: row.querySelector(".edit-stock-unit").value.trim(),
+        remark: row.querySelector(".edit-stock-remark").value.trim()
+      })).filter(item => item.itemName && item.quantity > 0 && item.unit);
+    }
+
+    function collectEditRequestItems(panel) {
+      return [...panel.querySelectorAll(".edit-request-row")].map(row => ({
+        materialName: row.querySelector(".edit-request-material").value.trim(),
+        quantity: Number(row.querySelector(".edit-request-quantity").value) || 0,
+        remark: row.querySelector(".edit-request-remark").value.trim()
+      })).filter(item => item.materialName && item.quantity > 0);
+    }
+
+    async function saveStockEdit(e) {
+      if (!isOwner) return;
+      const button = e.currentTarget;
+      const id = button.dataset.id;
+      const panel = button.closest(".edit-panel");
+      const record = inventoryLogs.find(item => item.id === id);
+      if (!panel || !record) return;
+      const items = collectEditStockItems(panel);
+      if (!items.length || items.length !== panel.querySelectorAll(".edit-stock-row").length) {
+        showNotice("Please complete every stock item name, quantity, and unit.");
+        return;
+      }
+      const email = (auth.currentUser?.email || "").toLowerCase();
+      const type = panel.querySelector(".edit-stock-type").value;
+      const departmentHead = panel.querySelector(".edit-stock-pic").value.trim();
+      const location = panel.querySelector(".edit-stock-location").value.trim();
+      if (!departmentHead || !location) {
+        showNotice("Please complete Dept./PIC and Location.");
+        return;
+      }
+      setLoading(button, true);
+      try {
+        const summary = "Stock record edited";
+        const batch = writeBatch(db);
+        batch.update(doc(db, `${DATA_ROOT}/inventory_logs`, id), {
+          type,
+          departmentHead,
+          location,
+          itemName: items[0].itemName,
+          quantity: items.reduce((sum, item) => sum + item.quantity, 0),
+          unit: items[0].unit,
+          items,
+          lastAdminAction: summary,
+          lastAdminActorEmail: email,
+          lastAdminActorName: adminDisplayName(email),
+          lastAdminActionAt: serverTimestamp()
+        });
+        batch.set(doc(collection(db, AUDIT_PATH)), {
+          recordId: id,
+          recordName: items[0].itemName || "Stock record",
+          recordType: "inventory_log",
+          action: "edit",
+          summary,
+          actorName: adminDisplayName(email),
+          actorEmail: email,
+          timestamp: serverTimestamp()
+        });
+        await batch.commit();
+        showNotice("Stock record edited.");
+      } catch (err) {
+        showNotice("Edit failed: " + formatFirebaseError(err));
+      } finally {
+        setLoading(button, false);
+      }
+    }
+
+    async function saveRequestEdit(e) {
+      if (!isOwner) return;
+      const button = e.currentTarget;
+      const id = button.dataset.id;
+      const panel = button.closest(".edit-panel");
+      const record = materialRequests.find(item => item.id === id);
+      if (!panel || !record) return;
+      const items = collectEditRequestItems(panel);
+      if (!items.length || items.length !== panel.querySelectorAll(".edit-request-row").length) {
+        showNotice("Please complete every material name and quantity.");
+        return;
+      }
+      const email = (auth.currentUser?.email || "").toLowerCase();
+      const personInCharge = panel.querySelector(".edit-request-pic").value.trim();
+      const purpose = panel.querySelector(".edit-request-purpose").value.trim();
+      const dateNeeded = panel.querySelector(".edit-request-date").value;
+      const deliveryAddress = panel.querySelector(".edit-request-address").value.trim();
+      if (!personInCharge || !purpose || !dateNeeded || !deliveryAddress) {
+        showNotice("Please complete all request information.");
+        return;
+      }
+      setLoading(button, true);
+      try {
+        const summary = "Material request edited";
+        const batch = writeBatch(db);
+        batch.update(doc(db, `${DATA_ROOT}/material_requests`, id), {
+          personInCharge,
+          purpose,
+          dateNeeded,
+          deliveryAddress,
+          materialName: items[0].materialName,
+          quantity: items.reduce((sum, item) => sum + item.quantity, 0),
+          items,
+          lastAdminAction: summary,
+          lastAdminActorEmail: email,
+          lastAdminActorName: adminDisplayName(email),
+          lastAdminActionAt: serverTimestamp()
+        });
+        batch.set(doc(collection(db, AUDIT_PATH)), {
+          recordId: id,
+          recordName: items[0].materialName || "Material request",
+          recordType: "material_request",
+          action: "edit",
+          summary,
+          actorName: adminDisplayName(email),
+          actorEmail: email,
+          timestamp: serverTimestamp()
+        });
+        await batch.commit();
+        showNotice("Material request edited.");
+      } catch (err) {
+        showNotice("Edit failed: " + formatFirebaseError(err));
+      } finally {
+        setLoading(button, false);
       }
     }
 
