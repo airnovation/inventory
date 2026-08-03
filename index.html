@@ -342,11 +342,12 @@
               <button id="add-request-item" class="btn bg-slate-200 px-3 py-2 text-slate-700" type="button">+ Add Another Item</button>
             </div>
             <div class="overflow-x-auto">
-              <table class="w-full min-w-[640px] text-left text-sm">
+              <table class="w-full min-w-[720px] text-left text-sm">
                 <thead class="text-slate-500">
                   <tr>
                     <th class="pb-2 pr-3">Material Name</th>
                     <th class="pb-2 pr-3">Quantity</th>
+                    <th class="pb-2 pr-3">Unit</th>
                     <th class="pb-2 pr-3">Remark</th>
                     <th class="pb-2">Action</th>
                   </tr>
@@ -527,8 +528,8 @@
         <div class="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-600">
           <p></p><p></p>
           <div class="mt-3 overflow-x-auto">
-            <table class="w-full min-w-[420px] text-left text-sm">
-              <thead class="text-slate-400"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Remark</th></tr></thead>
+            <table class="w-full min-w-[500px] text-left text-sm">
+              <thead class="text-slate-400"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Unit</th><th class="pb-2 pr-3">Remark</th></tr></thead>
               <tbody>${itemRows}</tbody>
             </table>
           </div>
@@ -554,6 +555,7 @@
         <tr class="border-t border-slate-100">
           <td class="py-2 pr-3 font-semibold text-slate-700">${escapeHtml(item.materialName || "Untitled material")}</td>
           <td class="py-2 pr-3">${escapeHtml(String(item.quantity || 0))}</td>
+          <td class="py-2 pr-3">${escapeHtml(item.unit || "-")}</td>
           <td class="py-2 pr-3">${escapeHtml(item.remark || "-")}</td>
         </tr>`;
     }
@@ -633,8 +635,8 @@
           <button class="add-edit-request-item btn bg-slate-200 px-3 py-2 text-slate-700" type="button">+ Add Item</button>
         </div>
         <div class="mt-2 overflow-x-auto">
-          <table class="w-full min-w-[620px] text-left text-sm">
-            <thead class="text-slate-500"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Remark</th><th class="pb-2">Action</th></tr></thead>
+          <table class="w-full min-w-[700px] text-left text-sm">
+            <thead class="text-slate-500"><tr><th class="pb-2 pr-3">Material Name</th><th class="pb-2 pr-3">Quantity</th><th class="pb-2 pr-3">Unit</th><th class="pb-2 pr-3">Remark</th><th class="pb-2">Action</th></tr></thead>
             <tbody class="edit-request-items">${rows}</tbody>
           </table>
         </div>
@@ -656,6 +658,7 @@
       return `<tr class="edit-request-row">
         <td class="pb-3 pr-3"><input class="edit-request-material field" required value="${escapeAttr(item.materialName || "")}"></td>
         <td class="pb-3 pr-3"><input class="edit-request-quantity field" required type="number" min="1" value="${escapeAttr(item.quantity || "")}"></td>
+        <td class="pb-3 pr-3"><input class="edit-request-unit field" required value="${escapeAttr(item.unit || "")}"></td>
         <td class="pb-3 pr-3"><input class="edit-request-remark field" value="${escapeAttr(item.remark || "")}"></td>
         <td class="pb-3"><button class="remove-edit-row btn btn-red px-3 py-2" type="button">Remove</button></td>
       </tr>`;
@@ -761,6 +764,7 @@
       row.innerHTML = `
         <td class="pb-3 pr-3"><input class="request-material field" required placeholder="Cable Tray"></td>
         <td class="pb-3 pr-3"><input class="request-quantity field" required type="number" min="1" placeholder="10"></td>
+        <td class="pb-3 pr-3"><input class="request-unit field" required placeholder="pcs"></td>
         <td class="pb-3 pr-3"><input class="request-remark field" placeholder="300 mm"></td>
         <td class="pb-3"><button class="remove-request-item btn btn-red px-3 py-2" type="button">Remove</button></td>`;
       row.querySelector(".remove-request-item").addEventListener("click", () => {
@@ -782,8 +786,9 @@
       return [...document.querySelectorAll(".request-item-row")].map(row => ({
         materialName: row.querySelector(".request-material").value.trim(),
         quantity: Number(row.querySelector(".request-quantity").value) || 0,
+        unit: row.querySelector(".request-unit").value.trim(),
         remark: row.querySelector(".request-remark").value.trim()
-      })).filter(item => item.materialName && item.quantity > 0);
+      })).filter(item => item.materialName && item.quantity > 0 && item.unit);
     }
 
     function getRequestItems(req) {
@@ -791,6 +796,7 @@
       return [{
         materialName: req.materialName || "Untitled material",
         quantity: req.quantity || 0,
+        unit: req.unit || "",
         remark: req.remark || ""
       }];
     }
@@ -886,6 +892,7 @@
               deliveryAddress: item.deliveryAddress || "",
               materialName: requestItem.materialName || "",
               quantity: requestItem.quantity || 0,
+              unit: requestItem.unit || "",
               remark: requestItem.remark || "",
               status: getStatusLabel(item.status),
               adminRemark: item.adminRemark || "",
@@ -998,6 +1005,7 @@
         ["deliveryAddress", "Delivery Address"],
         ["materialName", "Material Name"],
         ["quantity", "Quantity"],
+        ["unit", "Unit"],
         ["remark", "Remark"],
         ["status", "Status"],
         ["adminRemark", "Admin Remark"],
@@ -1145,6 +1153,12 @@
       try {
         const imageDataURLs = getSelectedPhotos("request");
         validatePhotoPayload(imageDataURLs);
+        const missingUnit = [...document.querySelectorAll(".request-item-row")].find(row => !row.querySelector(".request-unit").value.trim());
+        if (missingUnit) {
+          missingUnit.querySelector(".request-unit").focus();
+          showNotice("Please fill in Unit for every requested item.");
+          return;
+        }
         const requestItems = collectRequestItems();
         if (!requestItems.length) {
           showNotice("Please add at least one requested item.");
@@ -1155,6 +1169,7 @@
           purpose: document.getElementById("request-purpose").value,
           materialName: requestItems[0].materialName,
           quantity: requestItems.reduce((sum, item) => sum + item.quantity, 0),
+          unit: requestItems[0].unit,
           items: requestItems,
           dateNeeded: document.getElementById("request-date").value,
           deliveryAddress: document.getElementById("request-address").value,
@@ -1301,8 +1316,9 @@
       return [...panel.querySelectorAll(".edit-request-row")].map(row => ({
         materialName: row.querySelector(".edit-request-material").value.trim(),
         quantity: Number(row.querySelector(".edit-request-quantity").value) || 0,
+        unit: row.querySelector(".edit-request-unit").value.trim(),
         remark: row.querySelector(".edit-request-remark").value.trim()
-      })).filter(item => item.materialName && item.quantity > 0);
+      })).filter(item => item.materialName && item.quantity > 0 && item.unit);
     }
 
     async function saveStockEdit(e) {
@@ -1370,7 +1386,7 @@
       if (!panel || !record) return;
       const items = collectEditRequestItems(panel);
       if (!items.length || items.length !== panel.querySelectorAll(".edit-request-row").length) {
-        showNotice("Please complete every material name and quantity.");
+        showNotice("Please complete every material name, quantity, and unit.");
         return;
       }
       const email = (auth.currentUser?.email || "").toLowerCase();
@@ -1393,6 +1409,7 @@
           deliveryAddress,
           materialName: items[0].materialName,
           quantity: items.reduce((sum, item) => sum + item.quantity, 0),
+          unit: items[0].unit,
           items,
           lastAdminAction: summary,
           lastAdminActorEmail: email,
