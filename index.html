@@ -111,6 +111,7 @@
     let currentLogItems = [];
     let currentLogTitle = "Activity Log";
     let adminMode = "requests";
+    const adminStatusFilters = { requests: "all", stock: "all" };
     let unsubscribeInventory = null;
     let unsubscribeRequests = null;
     let unsubscribeAudits = null;
@@ -423,6 +424,8 @@
         </div>
         <section>
           <h3 class="mb-3 text-lg font-bold text-slate-700">${adminMode === "stock" ? "Stock Records Management" : "Material Request Management"}</h3>
+          <div id="admin-status-filters" class="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by status"></div>
+          <p id="admin-result-count" class="mb-3 text-sm text-slate-500" aria-live="polite"></p>
           <div id="admin-list" class="space-y-3"></div>
         </section>`;
       document.getElementById("logout").addEventListener("click", adminLogout);
@@ -433,19 +436,30 @@
         });
       });
       const list = document.getElementById("admin-list");
-      const stockSorted = [...inventoryLogs].sort((a, b) => compareAdminRecords(
-        a,
-        b,
-        item => getStockStatusRank(item.stockStatus || item.status)
-      ));
-      const requestSorted = [...materialRequests].sort((a, b) => compareAdminRecords(
-        a,
-        b,
-        item => getStatusRank(item.status)
-      ));
-      const sorted = adminMode === "stock" ? stockSorted : requestSorted;
+      const records = adminMode === "stock" ? inventoryLogs : materialRequests;
+      const options = adminMode === "stock" ? getStockStatusOptions() : getStatusOptions();
+      const filterOptions = [["all", "All"], ["unfinished", "Unfinished"], ...options];
+      const filterContainer = document.getElementById("admin-status-filters");
+      filterOptions.forEach(([value, label]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        const selected = adminStatusFilters[adminMode] === value;
+        button.className = `btn min-h-[44px] px-3 py-2 text-sm ${selected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`;
+        button.setAttribute("aria-pressed", String(selected));
+        button.dataset.statusFilter = value;
+        button.textContent = `${label} (${filterAdminRecords(records, adminMode, value).length})`;
+        button.addEventListener("click", () => {
+          adminStatusFilters[adminMode] = value;
+          renderAdmin();
+          document.querySelector(`[data-status-filter="${value}"]`)?.focus();
+        });
+        filterContainer.appendChild(button);
+      });
+      const sorted = filterAdminRecords(records, adminMode, adminStatusFilters[adminMode])
+        .sort((a, b) => compareAdminRecords(a, b, adminMode));
+      document.getElementById("admin-result-count").textContent = `Showing ${sorted.length} of ${records.length} records`;
       if (!sorted.length) {
-        list.innerHTML = `<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">${adminMode === "stock" ? "No stock records found." : "No pending requests."}</div>`;
+        list.innerHTML = '<div class="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-400">No records match this filter.</div>';
       } else {
         sorted.forEach(item => list.appendChild(adminMode === "stock" ? stockCard(item, true) : requestCard(item, true)));
       }
@@ -864,8 +878,8 @@
     function getStatusRank(status) {
       return ({
         new: 1,
-        still_pending: 2,
-        processing: 3,
+        processing: 2,
+        still_pending: 3,
         rejected: 4,
         completed: 5
       })[normalizeStatus(status)] || 6;
@@ -879,13 +893,40 @@
     }
 
     function timestampMillis(value) {
-      return value?.toMillis?.() || 0;
+      const millis = value?.toMillis?.();
+      return Number.isFinite(millis) && millis >= 0 ? millis : null;
     }
 
-    function compareAdminRecords(a, b, rankGetter) {
-      const rankDiff = rankGetter(a) - rankGetter(b);
+    function adminRecordStatus(record, mode) {
+      return mode === "stock"
+        ? normalizeStockStatus(record.stockStatus || record.status)
+        : normalizeStatus(record.status);
+    }
+
+    function isUnfinishedRecord(record, mode) {
+      const status = adminRecordStatus(record, mode);
+      return mode === "stock" ? status !== "recorded" : !["completed", "rejected"].includes(status);
+    }
+
+    function filterAdminRecords(records, mode, filter) {
+      return records.filter(record => filter === "all" ||
+        (filter === "unfinished" ? isUnfinishedRecord(record, mode) : adminRecordStatus(record, mode) === filter));
+    }
+
+    function compareAdminRecords(a, b, mode) {
+      const rankGetter = mode === "stock" ? getStockStatusRank : getStatusRank;
+      const rankDiff = rankGetter(adminRecordStatus(a, mode)) - rankGetter(adminRecordStatus(b, mode));
       if (rankDiff) return rankDiff;
-      return timestampMillis(b.timestamp) - timestampMillis(a.timestamp);
+      const aTime = timestampMillis(a.timestamp);
+      const bTime = timestampMillis(b.timestamp);
+      // Pending/missing timestamps cannot establish waiting order; place them last.
+      if (aTime === null && bTime !== null) return 1;
+      if (bTime === null && aTime !== null) return -1;
+      const timeDiff = aTime === null ? 0 : (isUnfinishedRecord(a, mode) ? aTime - bTime : bTime - aTime);
+      if (timeDiff) return timeDiff;
+      const aId = String(a.id || "");
+      const bId = String(b.id || "");
+      return aId < bId ? -1 : aId > bId ? 1 : 0;
     }
 
     function handledTimestamp(record) {
@@ -1735,3 +1776,4 @@
   </script>
 </body>
 </html>
+

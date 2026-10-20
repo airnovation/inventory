@@ -1,4 +1,4 @@
-const CACHE_NAME = "airnovation-inventory-v13";
+const CACHE_NAME = "airnovation-inventory-v14";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -51,3 +51,4 @@ self.addEventListener("fetch", event => {
     caches.match(request).then(cached => cached || fetch(request))
   );
 });
+
